@@ -213,9 +213,10 @@ class LiteLLMClient(LLMClient):
         if self.config.api_base:
             call_params["api_base"] = self.config.api_base
 
-        # Add any additional kwargs
+        # Filter out ACE-specific parameters and add remaining kwargs
+        ace_specific_params = {'refinement_round'}
         call_params.update({k: v for k, v in kwargs.items()
-                          if k not in call_params})
+                          if k not in call_params and k not in ace_specific_params})
 
         try:
             # Use router if available, otherwise direct completion
@@ -272,9 +273,10 @@ class LiteLLMClient(LLMClient):
         if self.config.api_base:
             call_params["api_base"] = self.config.api_base
 
-        # Add any additional kwargs
+        # Filter out ACE-specific parameters and add remaining kwargs
+        ace_specific_params = {'refinement_round'}
         call_params.update({k: v for k, v in kwargs.items()
-                          if k not in call_params})
+                          if k not in call_params and k not in ace_specific_params})
 
         try:
             # Use router if available, otherwise direct completion
