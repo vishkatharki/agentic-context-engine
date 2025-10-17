@@ -112,6 +112,8 @@ def main():
         console.print(f"[dim]Used bullets: {output2.bullet_ids}[/dim]")
 
     # Just show the two answers for comparison
+    import time
+    time.sleep(2)  # Pause before showing results
     console.print("\n" + "=" * 60)
     console.print("[bold cyan]📊 Results Comparison[/bold cyan]")
     console.print("=" * 60)

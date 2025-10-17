@@ -72,6 +72,24 @@ ACE enables agents to learn from execution feedback-what works, what doesn't, an
 
 ## Demos
 
+### 🌊 The Seahorse Emoji Challenge
+
+Watch ACE learn from its own mistakes in real-time! This demo shows how ACE handles the infamous "seahorse emoji problem" - a challenge where LLMs often hallucinate that a seahorse emoji exists (it doesn't).
+
+<video src="kayba_test_demo.mp4" width="100%" controls>
+  <a href="kayba_test_demo.mp4">Watch the demo</a>
+</video>
+
+In this example:
+- **Round 1**: The agent incorrectly provides 🐴 (horse emoji)
+- **Self-Reflection**: ACE analyzes the response without any external feedback
+- **Round 2**: With learned strategies from ACE, the agent successfully realizes there is no seahorse emoji
+
+Try it yourself:
+```bash
+python examples/kayba_ace_test.py
+```
+
 ### Basic Q&A Agent
 
 ```python
