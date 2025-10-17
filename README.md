@@ -229,7 +229,10 @@ If you use ACE in your research, please cite:
 
 <div align="center">
 
+
 **Star ⭐ this repo if you find it useful!** <br>
 **Built with ❤️ by [Kayba](https://kayba.ai) and the open-source community**
 
 </div>
+
+<div align="center" style="background-color: #f6f8fa; padding: 20px; border-radius: 6px; margin-top: 40px;"> ⭐ Star this repo if you find it useful! <br><br> Built with ❤️ by Kayba and the open-source community </div>
