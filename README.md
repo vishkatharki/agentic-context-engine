@@ -228,9 +228,12 @@ If you use ACE in your research, please cite:
 ```
 
 
-<div align="center" style="background-color: #f6f8fa; padding: 24px; border-top: 3px solid #ffffff; margin-top: 80px;">
+<div align="center">
+
+<br><br>
 
 **⭐ Star this repo if you find it useful!** <br><br>
+
 **Built with ❤️ by [Kayba](https://kayba.ai) and the open-source community**
 
 </div>
