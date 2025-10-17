@@ -228,18 +228,9 @@ If you use ACE in your research, please cite:
 ```
 
 
-<div align="center" style="background-color: #f6f8fa; padding: 24px; border-top: 3px solid #d0d7de; margin-top: 40px;">
+<div align="center" style="background-color: #f6f8fa; padding: 24px; border-top: 3px solid #ffffff; margin-top: 80px;">
 
 **⭐ Star this repo if you find it useful!** <br><br>
 **Built with ❤️ by [Kayba](https://kayba.ai) and the open-source community**
 
 </div>
-
-<div align="center" style="background: linear-gradient(to bottom, #ffffff, #f6f8fa); padding: 30px; border-radius: 8px; margin-top: 40px; border: 1px solid #d0d7de;">
-
-**⭐ Star this repo if you find it useful!** <br><br>
-**Built with ❤️ by [Kayba](https://kayba.ai) and the open-source community**
-
-</div>
-
-<table align="center"> <tr> <td align="center" bgcolor="#f6f8fa" style="padding: 20px;"> ⭐ Star this repo if you find it useful! Built with ❤️ by Kayba and the open-source community </td> </tr> </table> 
