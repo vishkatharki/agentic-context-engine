@@ -1,23 +1,70 @@
 # 🚀 ACE Framework Quick Start
 
-Get your first self-learning AI agent running in 5 minutes!
+Get your first self-learning AI agent running!
 
-## Installation
+---
+
+## 🚀 Simple Quickstart (5 minutes)
+
+The fastest way to get started with ACE.
+
+### Step 1: Install
 
 ```bash
 pip install ace-framework
 ```
 
-## Your First ACE Agent
-
-### Step 1: Set API Key
+### Step 2: Set API Key
 
 ```bash
 export OPENAI_API_KEY="your-key-here"
 # Or: ANTHROPIC_API_KEY, GOOGLE_API_KEY, etc.
 ```
 
-### Step 2: Create `my_first_ace.py`
+### Step 3: Create `my_first_ace.py`
+
+```python
+from ace import ACELiteLLM
+
+# Create agent that learns automatically
+agent = ACELiteLLM(model="gpt-4o-mini")
+
+# Ask questions - it learns from each interaction
+answer1 = agent.ask("What is 2+2?")
+print(f"Answer: {answer1}")
+
+answer2 = agent.ask("What is the capital of France?")
+print(f"Answer: {answer2}")
+
+# Agent now has learned strategies!
+print(f"✅ Learned {len(agent.playbook.bullets())} strategies")
+
+# Save for later
+agent.save_playbook("my_agent.json")
+```
+
+### Step 4: Run It
+
+```bash
+python my_first_ace.py
+```
+
+### What Just Happened?
+
+Your agent:
+- **Learned automatically** from each interaction
+- **Built a playbook** of successful strategies
+- **Saved knowledge** for reuse
+
+That's it! You now have a self-improving AI agent.
+
+---
+
+## 🎓 Advanced Tutorial: Understanding ACE Internals (15 minutes)
+
+Want to understand how ACE works under the hood? This section shows the full architecture with Generator, Reflector, and Curator roles.
+
+### Full Pipeline Example
 
 ```python
 from ace import OfflineAdapter, Generator, Reflector, Curator
@@ -37,10 +84,10 @@ class SimpleEnvironment(TaskEnvironment):
 # Initialize LLM client
 client = LiteLLMClient(model="gpt-4o-mini")
 
-# Create ACE components
-generator = Generator(client)
-reflector = Reflector(client)
-curator = Curator(client)
+# Create ACE components (three roles)
+generator = Generator(client)  # Produces answers
+reflector = Reflector(client)  # Analyzes performance
+curator = Curator(client)      # Updates playbook
 
 # Create adapter to orchestrate everything
 adapter = OfflineAdapter(generator=generator, reflector=reflector, curator=curator)
@@ -70,12 +117,6 @@ print(f"\nTest question: What is 5 + 3?")
 print(f"Answer: {test_output.final_answer}")
 ```
 
-### Step 3: Run It
-
-```bash
-python my_first_ace.py
-```
-
 Expected output:
 ```
 Training agent...
@@ -85,15 +126,16 @@ Test question: What is 5 + 3?
 Answer: 8
 ```
 
----
+### Understanding the Architecture
 
-## What Just Happened?
+**Three ACE Roles:**
+1. **Generator** - Executes tasks using playbook strategies
+2. **Reflector** - Analyzes what worked/didn't work
+3. **Curator** - Updates playbook with new strategies
 
-Your agent:
-1. **Learned** from training examples
-2. **Reflected** on what strategies work
-3. **Built a playbook** of successful approaches
-4. **Applied** strategies to solve a new problem
+**Two Adaptation Modes:**
+- **OfflineAdapter** - Train on batch of samples (shown above)
+- **OnlineAdapter** - Learn from each task in real-time
 
 ---
 
@@ -102,12 +144,26 @@ Your agent:
 ### Load Saved Agent
 
 ```python
-from ace import Playbook
+from ace import ACELiteLLM
 
 # Load previously trained agent
+agent = ACELiteLLM.from_playbook("my_agent.json", model="gpt-4o-mini")
+
+# Use it immediately
+answer = agent.ask("New question")
+```
+
+Or with full pipeline:
+
+```python
+from ace import Playbook, Generator, LiteLLMClient
+
+# Load playbook
 playbook = Playbook.load_from_file("my_agent.json")
 
-# Use it
+# Use with generator
+client = LiteLLMClient(model="gpt-4o-mini")
+generator = Generator(client)
 output = generator.generate(
     question="New question",
     context="",
@@ -119,36 +175,37 @@ output = generator.generate(
 
 ```python
 # Anthropic Claude
-client = LiteLLMClient(model="claude-3-5-sonnet-20241022")
+agent = ACELiteLLM(model="claude-3-5-sonnet-20241022")
 
 # Google Gemini
-client = LiteLLMClient(model="gemini-pro")
+agent = ACELiteLLM(model="gemini-pro")
 
 # Local Ollama
-client = LiteLLMClient(model="ollama/llama2")
+agent = ACELiteLLM(model="ollama/llama2")
 ```
 
 ### Add ACE to Existing Agents
 
 Already have an agent? Wrap it with ACE learning:
 
+**Browser Automation:**
 ```python
-from ace.integrations import ACEAgent  # For browser-use
-from ace.integrations import ACELangChain  # For LangChain
+from ace import ACEAgent
+from browser_use import ChatBrowserUse
 
-# See Integration Guide for details
+agent = ACEAgent(llm=ChatBrowserUse())
+await agent.run(task="Your task")  # Learns automatically
 ```
 
----
+**LangChain:**
+```python
+from ace import ACELangChain
 
-## Learn More
+ace_chain = ACELangChain(runnable=your_langchain_chain)
+result = ace_chain.invoke({"question": "Your task"})
+```
 
-- **[Integration Guide](INTEGRATION_GUIDE.md)** - Add ACE to existing agents
-- **[Complete Guide](COMPLETE_GUIDE_TO_ACE.md)** - Deep dive into ACE concepts
-- **[Examples](../examples/)** - Real-world examples
-  - [Browser Automation](../examples/browser-use/) - Self-improving browser agents
-  - [LangChain Integration](../examples/langchain/) - Wrap chains with learning
-  - [Custom Integration](../examples/custom_integration_example.py) - Any agent pattern
+See [Integration Guide](INTEGRATION_GUIDE.md) for details.
 
 ---
 
@@ -187,6 +244,17 @@ class MathEnvironment(TaskEnvironment):
 
 ---
 
+## Learn More
+
+- **[Integration Guide](INTEGRATION_GUIDE.md)** - Add ACE to existing agents
+- **[Complete Guide](COMPLETE_GUIDE_TO_ACE.md)** - Deep dive into ACE concepts
+- **[Examples](../examples/)** - Real-world examples
+  - [Browser Automation](../examples/browser-use/) - Self-improving browser agents
+  - [LangChain Integration](../examples/langchain/) - Wrap chains with learning
+  - [Custom Integration](../examples/custom_integration_example.py) - Any agent pattern
+
+---
+
 ## Troubleshooting
 
 **Import errors?**
@@ -196,7 +264,7 @@ pip install --upgrade ace-framework
 
 **API key not working?**
 - Verify key is correct: `echo $OPENAI_API_KEY`
-- Try different model: `LiteLLMClient(model="gpt-3.5-turbo")`
+- Try different model: `ACELiteLLM(model="gpt-3.5-turbo")`
 
 **Need help?**
 - [GitHub Issues](https://github.com/kayba-ai/agentic-context-engine/issues)
