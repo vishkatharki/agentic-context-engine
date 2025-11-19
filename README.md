@@ -41,52 +41,23 @@ export OPENAI_API_KEY="your-api-key"
 ### 3. Create Your First ACE Agent
 
 ```python
-from ace import LiteLLMClient, Generator, Playbook, Sample
+from ace import ACELiteLLM
 
-# Initialize with any LLM
-llm = LiteLLMClient(model="gpt-4o-mini")
-generator = Generator(llm)
+# Create agent that learns automatically
+agent = ACELiteLLM(model="gpt-4o-mini")
 
-# Use it like a normal LLM (no learning yet)
-result = generator.generate(
-    question="What is 2+2?",
-    context="Be direct"
-)
-print(f"Answer: {result.final_answer}")
-```
+# Ask questions - it learns from each interaction
+answer1 = agent.ask("What is 2+2?")
+print(f"Answer: {answer1}")
 
-That's it! Now let's make it **learn and improve**:
+answer2 = agent.ask("What is the capital of France?")
+print(f"Answer: {answer2}")
 
-```python
-from ace import OfflineAdapter, Reflector, Curator, SimpleEnvironment
+# Agent now has learned strategies!
+print(f"✅ Learned {len(agent.playbook.bullets())} strategies")
 
-# Create ACE learning system
-playbook = Playbook()
-adapter = OfflineAdapter(
-    playbook=playbook,
-    generator=generator,
-    reflector=Reflector(llm),
-    curator=Curator(llm)
-)
-
-# Teach it from examples (it learns patterns)
-samples = [
-    Sample(question="What is 2+2?", ground_truth="4"),
-    Sample(question="Capital of France?", ground_truth="Paris"),
-]
-
-results = adapter.run(samples, SimpleEnvironment(), epochs=1)
-print(f"✅ Learned {len(playbook.bullets())} strategies!")
-
-# Now use the improved agent
-result = generator.generate(
-    question="What is 5+3?",
-    playbook=playbook  # ← Uses learned strategies
-)
-print(f"🧠 Smarter answer: {result.final_answer}")
-
-# Save and reuse later
-playbook.save_to_file("my_agent.json")
+# Save for later
+agent.save_playbook("my_agent.json")
 ```
 
 🎉 **Your agent just got smarter!** It learned from examples and improved.

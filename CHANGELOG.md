@@ -25,9 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Test coverage** - Improved from 28% to 70% (241 tests total)
 
 ### Changed
-- **Documentation cleanup** - Removed 10,000+ lines of internal artifacts, consolidated guides
-- **Examples reorganization** - Logical folders (prompts/, litellm/, starter-templates/)
-- **Renamed SimpleAgent → ACELiteLLM** - Moved to `ace/integrations/`
+- **Renamed SimpleAgent → ACELiteLLM** - Clearer naming for conversational agent integration
 - `Playbook.__str__()` returns markdown (TOON reserved for LLM consumption via `as_prompt()`)
 
 ### Fixed
