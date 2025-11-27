@@ -103,8 +103,9 @@ WORKSPACE STRUCTURE:
 
 CRITICAL REQUIREMENTS:
 1. Apply relevant strategies from the playbook context (injected above)
-2. Make atomic commits after each logical unit of work
-3. Focus on actual work, not elaborate documentation or setup
+2. Test every new feature before committing to ensure it works
+3. Make atomic commits after each logical unit of work
+4. Focus on actual work, not elaborate documentation or setup
 
 FOCUS YOUR EFFORT ON:
 - Reading source files and understanding the implementation
