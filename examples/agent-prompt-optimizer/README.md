@@ -20,12 +20,15 @@
 - **Continuous Improvement**: Every interaction makes your agent smarter without manual intervention
 - **Learn from Production**: Real-world usage patterns directly improve agent behavior
 - **No More Prompt Regression**: Skills are versioned and scored based on actual performance
-- ⭐️ No labels, no fine-tuning — just prompt updates learned from real-time experience.
+- **No labels, no fine-tuning: just prompt updates learned from real-time experience.
 
 ### Real-World Impact
 - **💰 49% Token Reduction**: Demonstrated in browser automation tasks
 - **📈 20-35% Performance Gains**: Across complex reasoning tasks
-- **🚀 Zero Manual Effort**: Set it and forget it - agents improve autonomously
+- **🚀 Zero Manual Effort**: Set it and forget it - agents improve autonomously**
+
+![Kayba Prompt Optimizer Improvements](prompt-optimizer-improvements.png)
+
 
 ### How It Works
 1. **Execute**: Your agent performs tasks as usual
