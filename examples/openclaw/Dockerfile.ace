@@ -57,7 +57,7 @@ export OPENCLAW_HOME="${OPENCLAW_HOME:-$HOME/.openclaw}"\n\
 OUTPUT_DIR="$OPENCLAW_HOME/workspace/skills/kayba-ace"\n\
 mkdir -p "$OUTPUT_DIR"\n\
 cd /opt/ace\n\
-exec .venv/bin/python examples/openclaw/learn_from_traces.py \\\n\
+exec .venv/bin/python examples/openclaw/kayba-ace/learn_from_traces.py \\\n\
     --output "$OUTPUT_DIR" \\\n\
     "$@"\n' > /usr/local/bin/ace-learn \
     && chmod +x /usr/local/bin/ace-learn

@@ -58,10 +58,10 @@ uv sync
 export ANTHROPIC_API_KEY="your-key"
 
 # 3. Dry run (no LLM calls, just parse sessions)
-uv run python examples/openclaw/learn_from_traces.py --dry-run
+uv run python examples/openclaw/kayba-ace/learn_from_traces.py --dry-run
 
 # 4. Learn from all new sessions
-uv run python examples/openclaw/learn_from_traces.py
+uv run python examples/openclaw/kayba-ace/learn_from_traces.py
 ```
 
 ## How It Works
@@ -95,7 +95,7 @@ OpenClaw sessions  -->  JSONL transcripts on disk
 ```bash
 # Learn from all new sessions (default agent: main)
 ace-learn                              # Docker
-uv run python examples/openclaw/learn_from_traces.py  # Host
+uv run python examples/openclaw/kayba-ace/learn_from_traces.py  # Host
 
 # Process specific trace files
 ace-learn <trace.jsonl> [<trace2.jsonl> ...]
@@ -117,10 +117,11 @@ ace-learn --agent other-agent
 
 | File | Description |
 |---|---|
-| `learn_from_traces.py` | Main learning script |
+| `kayba-ace/` | Skill folder: `learn_from_traces.py`, `SKILL.md` (copied to OpenClaw workspace by `setup.py`) |
 | `Dockerfile.ace` | Extends OpenClaw image with Python 3.12 + ACE |
 | `ace-learn.sh` | Wrapper script (reference copy; Dockerfile inlines it) |
 | `AGENTS.md.snippet` | Paste into your AGENTS.md for auto-learning |
+| `setup.py` | Automated setup: copies skill folder, patches AGENTS.md |
 
 ## Configuration
 
@@ -130,7 +131,6 @@ ace-learn --agent other-agent
 | `OPENCLAW_AGENT_ID` | `main` | Agent ID for session discovery |
 | `OPENCLAW_HOME` | `$HOME/.openclaw` | Used by `ace-learn` only; do not set as a gateway env var |
 | `LITELLM_API_KEY` | - | API key (for non-Bedrock providers) |
-| `LITELLM_API_BASE` | - | LiteLLM proxy base URL |
 | `SPH_LITELLM_KEY` | - | Alternative API key variable |
 | `AWS_BEARER_TOKEN_BEDROCK` | - | AWS Bedrock bearer token |
 | `ANTHROPIC_API_KEY` | - | Anthropic API key |
@@ -147,5 +147,5 @@ ace-learn --agent other-agent
 ## Automate with Cron (Host Only)
 
 ```bash
-*/30 * * * * cd /path/to/agentic-context-engine && uv run python examples/openclaw/learn_from_traces.py >> /tmp/ace-openclaw.log 2>&1
+*/30 * * * * cd /path/to/agentic-context-engine && uv run python examples/openclaw/kayba-ace/learn_from_traces.py >> /tmp/ace-openclaw.log 2>&1
 ```

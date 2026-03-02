@@ -10,7 +10,8 @@
       "Read(//home/david/Desktop/projects/Kayba/openclaw/**)",
       "Bash(docker compose down)",
       "Bash(docker compose up -d openclaw-gateway)",
-      "Bash(python3 -c \":*)"
+      "Bash(python3 -c \":*)",
+      "Read(//home/david/.openclaw/**)"
     ],
     "additionalDirectories": [
       "/home/david/.openclaw/credentials",

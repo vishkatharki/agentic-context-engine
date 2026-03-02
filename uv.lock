@@ -37,6 +37,7 @@ dependencies = [
 [package.optional-dependencies]
 all = [
     { name = "accelerate" },
+    { name = "boto3" },
     { name = "browser-use" },
     { name = "instructor" },
     { name = "langchain-anthropic" },
@@ -50,6 +51,9 @@ all = [
     { name = "tenacity" },
     { name = "torch" },
     { name = "transformers" },
+]
+bedrock = [
+    { name = "boto3" },
 ]
 browser-use = [
     { name = "browser-use" },
@@ -108,6 +112,8 @@ tau-bench = [
 requires-dist = [
     { name = "accelerate", marker = "extra == 'all'", specifier = ">=0.20.0" },
     { name = "accelerate", marker = "extra == 'transformers'", specifier = ">=0.20.0" },
+    { name = "boto3", marker = "extra == 'all'", specifier = ">=1.42.50" },
+    { name = "boto3", marker = "extra == 'bedrock'", specifier = ">=1.42.50" },
     { name = "browser-use", marker = "extra == 'all'", specifier = ">=0.9.0" },
     { name = "browser-use", marker = "extra == 'browser-use'", specifier = ">=0.9.0" },
     { name = "instructor", marker = "extra == 'all'", specifier = ">=1.0.0" },
@@ -138,7 +144,7 @@ requires-dist = [
     { name = "transformers", marker = "extra == 'all'", specifier = ">=4.30.0" },
     { name = "transformers", marker = "extra == 'transformers'", specifier = ">=4.30.0" },
 ]
-provides-extras = ["claude-code", "instructor", "deduplication", "browser-use", "observability", "langchain", "transformers", "all"]
+provides-extras = ["claude-code", "instructor", "deduplication", "browser-use", "observability", "bedrock", "langchain", "transformers", "all"]
 
 [package.metadata.requires-dev]
 demos = [

@@ -15,6 +15,6 @@ OUTPUT_DIR="$OPENCLAW_HOME/workspace/skills/kayba-ace"
 mkdir -p "$OUTPUT_DIR"
 
 cd /opt/ace
-exec .venv/bin/python examples/openclaw/learn_from_traces.py \
+exec .venv/bin/python examples/openclaw/kayba-ace/learn_from_traces.py \
     --output "$OUTPUT_DIR" \
     "$@"

@@ -1,70 +1,162 @@
 # OpenClaw Integration
 
-Make your [OpenClaw](https://docs.openclaw.ai) agent self-improving. ACE reads session transcripts, extracts what worked and what didn't, and feeds learned strategies back to the agent via a skillbook that it reads at the start of every session.
+Make your [OpenClaw](https://docs.openclaw.ai) agent **self-improving**. ACE reads session transcripts, extracts what worked and what didn't, and feeds learned strategies back into the agent's context via a skillbook — automatically, every session.
+
+---
+
+## What Is OpenClaw?
+
+[OpenClaw](https://github.com/openclaw/openclaw) is an open-source, self-hosted AI assistant gateway. It connects AI models (Claude, GPT, etc.) to messaging platforms like Telegram, WhatsApp, Discord, and more. It runs locally and stores all data — sessions, memory, configuration — as files on your machine under `~/.openclaw/`.
+
+ACE plugs into this by reading session transcripts and building a skillbook of learned strategies that the agent loads at session start.
+
+---
 
 ## How It Works
 
-```
-OpenClaw session ends  -->  transcript saved to ~/.openclaw/agents/main/sessions/*.jsonl
-                                             |
-                            ace-learn (session start or on-demand)
-                                             |
-                        LoadTracesStep --> OpenClawToTraceStep
-                                             |
-                            TraceAnalyser (Reflect -> Tag -> Update -> Apply)
-                                             |
-                         +------------------+------------------+
-                         |                                     |
-                  ace_skillbook.json                   ace_skillbook.md
-                  (machine-readable)                   (human-readable)
-                                                               |
-                                          AGENTS.md tells agent to read skillbook
-                                                               |
-                                          Agent loads strategies into context
+```mermaid
+flowchart TD
+    A["OpenClaw session ends"] --> B["Transcript saved to<br><code>~/.openclaw/agents/main/sessions/*.jsonl</code>"]
+    B --> C["<b>ace-learn</b><br>session start or on-demand"]
+    C --> D["LoadTracesStep → OpenClawToTraceStep"]
+    D --> E["<b>TraceAnalyser</b><br>Reflect → Tag → Update → Apply"]
+    E --> F["<code>ace_skillbook.json</code><br>machine-readable"]
+    E --> G["<code>ace_skillbook.md</code><br>human-readable"]
+    G --> H["AGENTS.md tells agent<br>to read skillbook"]
+    H --> I["Agent loads strategies<br>into context"]
 ```
 
 1. OpenClaw writes session transcripts to `~/.openclaw/agents/<id>/sessions/*.jsonl`
 2. `ace-learn` runs at the start of the next session (or on-demand)
 3. **LoadTracesStep** reads JSONL files into raw event lists
 4. **OpenClawToTraceStep** converts events into structured traces
-5. **TraceAnalyser** runs the learning pipeline (Reflect -> Tag -> Update -> Apply)
+5. **TraceAnalyser** runs the learning pipeline (Reflect → Tag → Update → Apply)
 6. Updated skillbook is written to the workspace volume
 7. The agent reads `ace_skillbook.md` into its context and applies relevant strategies
 
+---
+
+## Prerequisites
+
+Before setting up ACE, you need a working OpenClaw installation.
+
+### 1. Install OpenClaw
+
+!!! note "Already have OpenClaw running?"
+    Skip to [Setup Methods](#setup-methods) below.
+
+=== "npm (quickest)"
+
+    ```bash
+    npm install -g openclaw@latest
+    openclaw onboard --install-daemon
+    ```
+
+    The onboard wizard walks you through model provider setup, API keys, and optional channel connections (Telegram, WhatsApp, etc.).
+
+=== "Docker"
+
+    ```bash
+    git clone https://github.com/openclaw/openclaw.git
+    cd openclaw
+    ./docker-setup.sh
+    ```
+
+    The setup script builds the image, runs onboarding, and starts the gateway via Docker Compose.
+
+=== "From source"
+
+    ```bash
+    git clone https://github.com/openclaw/openclaw.git
+    cd openclaw
+    pnpm install && pnpm ui:build && pnpm build
+    pnpm openclaw onboard --install-daemon
+    ```
+
+For full details, see the [OpenClaw documentation](https://docs.openclaw.ai).
+
+### 2. Verify OpenClaw is working
+
+Make sure the gateway is running and you have at least one completed session:
+
+```bash
+# Check the gateway is up
+curl -fsS http://127.0.0.1:18789/healthz
+
+# Check sessions exist
+ls ~/.openclaw/agents/main/sessions/*.jsonl
+```
+
+### 3. Get an LLM API key for ACE
+
+ACE needs its own LLM API key to run the reflection model. This is separate from the key OpenClaw uses. Any [LiteLLM-supported provider](https://docs.litellm.ai/docs/providers) works:
+
+| Provider | Key variable | Example model |
+|----------|-------------|---------------|
+| Anthropic | `ANTHROPIC_API_KEY` | `anthropic/claude-sonnet-4-6` |
+| OpenRouter | `OPENROUTER_API_KEY` | `openrouter/anthropic/claude-sonnet-4-6` |
+| AWS Bedrock | `AWS_BEARER_TOKEN_BEDROCK` | `bedrock/us.anthropic.claude-sonnet-4-20250514-v1:0` |
+| LiteLLM proxy | `LITELLM_API_KEY` | `anthropic/claude-sonnet-4-5` |
+
+---
+
 ## Setup
 
-There are two ways to set up ACE with OpenClaw:
+Two steps: **install the skill** (copies files + patches AGENTS.md), then **choose how to run** the learning script.
 
-- **Docker (recommended)** — bake ACE into the OpenClaw image. Zero runtime setup, the agent can trigger learning itself.
-- **Host** — run ACE on the host machine via cron or manually. Simpler if you don't want to customize Docker.
+### Step 1 — Install the skill
+
+Clone the ACE repo and run the setup script:
+
+```bash
+git clone https://github.com/Kayba-ai/agentic-context-engine.git
+cd agentic-context-engine
+python examples/openclaw/setup.py
+```
+
+This does two things automatically:
+
+1. **Copies** the `kayba-ace/` skill folder to `~/.openclaw/workspace/skills/kayba-ace/`
+2. **Patches** `~/.openclaw/workspace/AGENTS.md` with auto-learning instructions
+
+!!! tip "Options"
+    ```bash
+    python examples/openclaw/setup.py --no-agents        # skip AGENTS.md patching
+    python examples/openclaw/setup.py --openclaw-home /path/to/.openclaw  # custom path
+    ```
+
+    The script is idempotent — it won't overwrite generated files (`ace_skillbook.json`, `ace_skillbook.md`, `ace_processed.txt`) and skips the AGENTS.md patch if already present.
+
+### Step 2 — Choose how to run learning
+
+| | Docker (recommended) | Host |
+|---|---|---|
+| **How it works** | Bakes ACE into the OpenClaw Docker image | Runs ACE on your host machine |
+| **Learning trigger** | Agent runs `ace-learn` at session start | Cron job or manual |
+| **Pros** | Zero runtime setup, fully automatic | No Docker customization needed |
+| **Cons** | Requires rebuilding the image | Agent can't trigger learning itself |
 
 ---
 
 ## Docker Setup (Recommended)
 
-This approach extends your OpenClaw Docker image with Python 3.12 and ACE pre-installed. The agent runs `ace-learn` at session start automatically.
+Extends your OpenClaw Docker image with Python 3.12 and the ACE framework pre-installed. The agent runs `ace-learn` at session start automatically.
 
-### Prerequisites
-
-- **OpenClaw** running via Docker (with `docker-compose.yml`)
-- An **LLM API key** for the reflection model (Anthropic, OpenAI, AWS Bedrock, or any [LiteLLM-supported provider](https://docs.litellm.ai/docs/providers))
-
-### 1. Get the Dockerfile
-
-Copy `Dockerfile.ace` from the ACE repo into your OpenClaw directory:
+#### 2a — Get the Dockerfile
 
 ```bash
-# From the ACE repo
+# From the ACE repo (already cloned in Step 1)
 cp examples/openclaw/Dockerfile.ace /path/to/your/openclaw/
 ```
 
 Or download it directly:
 
 ```bash
-curl -o Dockerfile.ace https://raw.githubusercontent.com/Kayba-ai/agentic-context-engine/main/examples/openclaw/Dockerfile.ace
+curl -o Dockerfile.ace \
+  https://raw.githubusercontent.com/Kayba-ai/agentic-context-engine/main/examples/openclaw/Dockerfile.ace
 ```
 
-### 2. Build the image
+#### 2b — Build the image
 
 From your OpenClaw directory:
 
@@ -76,11 +168,13 @@ docker build -t openclaw:base .
 docker build -t openclaw:local --build-arg OPENCLAW_IMAGE=openclaw:base -f Dockerfile.ace .
 ```
 
-This adds ~200MB to the image and takes about 10 seconds. It installs:
-- **uv** — Python package manager
-- **Python 3.12** — via uv standalone builds (bookworm ships 3.11)
-- **ACE framework** — cloned from GitHub with all dependencies
-- **`ace-learn`** — wrapper command the agent calls
+!!! info "What this installs"
+    The extended image adds ~200MB and includes:
+
+    - **uv** — Python package manager
+    - **Python 3.12** — via uv standalone builds (the base image ships 3.11)
+    - **ACE framework** — cloned from GitHub at `/opt/ace` with all dependencies
+    - **`ace-learn`** — wrapper script at `/usr/local/bin/ace-learn`
 
 Then point your OpenClaw setup at the new image. In your `.env` file:
 
@@ -88,9 +182,9 @@ Then point your OpenClaw setup at the new image. In your `.env` file:
 OPENCLAW_IMAGE=openclaw:local
 ```
 
-### 3. Pass your API key through docker-compose
+#### 2c — Pass your API key
 
-ACE needs an LLM API key to run reflection. Add the relevant key to your `docker-compose.yml` environment section (or your `.env` file):
+Add the ACE reflection key to your `docker-compose.yml` environment section (or `.env` file):
 
 ```yaml
 services:
@@ -106,81 +200,13 @@ services:
       ACE_MODEL: ${ACE_MODEL:-bedrock/us.anthropic.claude-sonnet-4-20250514-v1:0}
 ```
 
-The default model is `bedrock/us.anthropic.claude-sonnet-4-20250514-v1:0`. Set `ACE_MODEL` in your `.env` to override (e.g., `ACE_MODEL=openrouter/anthropic/claude-sonnet-4-6`).
+The default model is `bedrock/us.anthropic.claude-sonnet-4-20250514-v1:0`. Set `ACE_MODEL` in your `.env` to override.
 
-### 4. Add auto-learning to AGENTS.md
-
-Add these sections to your `~/.openclaw/workspace/AGENTS.md`. This tells the agent to run learning at session start and read the skillbook.
-
-First, add the skillbook to the "Every Session" checklist (or equivalent startup instructions):
-
-```markdown
-## Every Session
-
-Before doing anything else:
-
-1. Read `SOUL.md` — this is who you are
-2. ...existing items...
-3. Run `ace-learn` then read `skills/kayba-ace/ace_skillbook.md` — your learned strategies
-```
-
-Then add the detailed learning instructions:
-
-```markdown
-## Auto-Learning
-
-At the start of each session, before responding to the user's first message,
-run:
-
-    ace-learn
-
-After it completes, report the results to the user. Include:
-- How many new sessions were processed
-- How many new strategies were added (and their IDs)
-- Total strategy count in the skillbook
-
-If there were no new sessions, report that briefly.
-
-If the command fails, tell the user that auto-learning failed and suggest they
-check their API key configuration, then continue normally.
-If `ace-learn` is not found, tell the user ACE is not installed and continue.
-
-### On-demand learning
-
-If the user asks to "learn from this session" (or similar), process only the
-current session's transcript:
-
-    ace-learn <path-to-current-session.jsonl>
-
-Find the current session file in `~/.openclaw/agents/main/sessions/` (it will
-be the most recently modified `.jsonl` file). Report what was learned.
-
-Do **not** reprocess all sessions — only the current one.
-
-## Learned Strategies
-
-After running `ace-learn`, read the file `skills/kayba-ace/ace_skillbook.md`
-into your context. This file contains strategies learned from past sessions.
-
-**Important:** You must explicitly read the file — markdown links are not
-auto-inlined. Use your file-reading tools to load the full content.
-
-When a strategy is relevant to the current task:
-
-1. Apply it.
-2. Cite the strategy ID (e.g. `conversation_style-00003`) so the user can
-   trace which learned behaviour influenced the response.
-```
-
-A complete snippet is available at [`examples/openclaw/AGENTS.md.snippet`](https://github.com/Kayba-ai/agentic-context-engine/blob/main/examples/openclaw/AGENTS.md.snippet).
-
-### 5. Restart the gateway
+#### 2d — Restart and verify
 
 ```bash
 docker compose down && docker compose up -d openclaw-gateway
 ```
-
-### 6. Verify
 
 Send a message to your agent (e.g., via Telegram). It should:
 
@@ -205,62 +231,54 @@ docker run --rm \
 
 ## Host Setup
 
-If you prefer running ACE on the host machine (outside Docker), this approach reads session files directly from disk.
+Run ACE on the host machine (outside Docker). This reads session files directly from disk. Useful if you don't want to customize the Docker image.
 
-### Prerequisites
+#### 2a — Install ACE dependencies
 
-- **Python 3.12+** (check with `python3 --version`)
-- **[uv](https://docs.astral.sh/uv/)** package manager
-- **OpenClaw** installed and running with at least one completed session
-- An **LLM API key** for the reflection model
-
-### 1. Install ACE
+From the ACE repo (already cloned in Step 1):
 
 ```bash
-git clone https://github.com/Kayba-ai/agentic-context-engine.git
 cd agentic-context-engine
 uv sync
 ```
 
-### 2. Set up as an OpenClaw skill
+!!! note "Python 3.12+ required"
+    Check with `python3 --version`. Install [uv](https://docs.astral.sh/uv/) if you don't have it.
 
-```bash
-mkdir -p ~/.openclaw/workspace/skills/kayba-ace
-cp examples/openclaw/learn_from_traces.py ~/.openclaw/workspace/skills/kayba-ace/
-```
+#### 2b — Configure your API key
 
-### 3. Configure your API key
+=== "Anthropic"
 
-```bash
-# Option A: Anthropic direct
-export ANTHROPIC_API_KEY="sk-ant-..."
+    ```bash
+    export ANTHROPIC_API_KEY="sk-ant-..."
+    ```
 
-# Option B: OpenRouter
-export OPENROUTER_API_KEY="sk-or-..."
-export ACE_MODEL="openrouter/anthropic/claude-sonnet-4-6"
+=== "OpenRouter"
 
-# Option C: AWS Bedrock (uses SDK auth, no key needed)
-export ACE_MODEL="bedrock/us.anthropic.claude-sonnet-4-20250514-v1:0"
+    ```bash
+    export OPENROUTER_API_KEY="sk-or-..."
+    export ACE_MODEL="openrouter/anthropic/claude-sonnet-4-6"
+    ```
 
-# Option D: LiteLLM proxy
-export LITELLM_API_KEY="your-key"
-export LITELLM_API_BASE="https://your-proxy.example.com/v1"
-export ACE_MODEL="anthropic/claude-sonnet-4-5"
-```
+=== "AWS Bedrock"
+
+    ```bash
+    export ACE_MODEL="bedrock/us.anthropic.claude-sonnet-4-20250514-v1:0"
+    ```
+
+    Uses AWS SDK auth — no explicit key needed if credentials are configured.
 
 You can also put these in `~/.openclaw/.env` or `~/.env` — the script loads both via `python-dotenv`.
 
-### 4. Verify
+#### 2c — Verify and run
 
 ```bash
 cd /path/to/agentic-context-engine
+
+# Dry run (no LLM calls, just parse sessions)
 uv run python ~/.openclaw/workspace/skills/kayba-ace/learn_from_traces.py --dry-run
-```
 
-### 5. Run learning
-
-```bash
-# One-off run
+# Learn from all new sessions
 uv run python ~/.openclaw/workspace/skills/kayba-ace/learn_from_traces.py
 
 # Process specific files
@@ -271,7 +289,7 @@ uv run python ~/.openclaw/workspace/skills/kayba-ace/learn_from_traces.py \
 uv run python ~/.openclaw/workspace/skills/kayba-ace/learn_from_traces.py --reprocess
 ```
 
-### 6. Automate with cron
+#### 2d — Automate with cron
 
 ```bash
 crontab -e
@@ -283,63 +301,72 @@ Add:
 */30 * * * * cd /path/to/agentic-context-engine && uv run python ~/.openclaw/workspace/skills/kayba-ace/learn_from_traces.py >> /tmp/ace-openclaw.log 2>&1
 ```
 
-### 7. Wire up AGENTS.md
-
-Follow the same AGENTS.md instructions from [step 4 of the Docker setup](#4-add-auto-learning-to-agentsmd). For the host setup, the agent can't run `ace-learn` directly (it's not in the container), so replace the `ace-learn` command with instructions to reference the skillbook file only. Learning happens externally via cron.
+!!! note "AGENTS.md for host setup"
+    The setup script already patched AGENTS.md in Step 1. For the host setup, the agent can't run `ace-learn` directly (it's not in the container), so it will report that `ace-learn` is not found and continue normally. Learning happens externally via cron; the agent still reads the skillbook at session start.
 
 ---
 
-## Making Learned Strategies Available to the Agent
+## Output Files
 
-The learning script writes two files to the skill directory:
+The learning script writes these files to the skill directory:
 
-| File | Description |
-|---|---|
-| `ace_skillbook.json` | Machine-readable skillbook (persists across runs) |
-| `ace_skillbook.md` | Human-readable skillbook grouped by section |
-| `ace_processed.txt` | Tracks which sessions have been processed |
+| File | Format | Description |
+|---|---|---|
+| `ace_skillbook.json` | JSON | Machine-readable skillbook (persists across runs) |
+| `ace_skillbook.md` | Markdown | Human-readable skillbook grouped by section |
+| `ace_processed.txt` | Text | Tracks which sessions have been processed |
 
-The agent loads strategies by **reading `ace_skillbook.md` at session start**. This must be an explicit instruction in AGENTS.md — OpenClaw does not auto-inline linked files. The agent uses its file-reading tools to load the skillbook content into its context window.
+The agent loads strategies by **reading `ace_skillbook.md` at session start**. This must be an explicit instruction in AGENTS.md — OpenClaw does not auto-inline linked files. The agent uses its file-reading tools to load the content into its context window.
 
-Once loaded, the agent has all strategies available and can cite their IDs (e.g., `conversation_style-00003`) when applying them.
+Once loaded, the agent can cite strategy IDs (e.g., `conversation_style-00003`) when applying them.
 
-## Pipeline Steps
+---
 
-**LoadTracesStep** — Reads a JSONL file and parses each line into a list of event dicts.
+## Example Skillbook Output
 
-**OpenClawToTraceStep** — Converts raw OpenClaw events into a structured trace:
+After processing a few sessions, `ace_skillbook.md` might contain:
 
-```python
-{
-    "question": "User: ...\n\nUser: ...",   # All user messages
-    "reasoning": "[thinking] ...\n[tool:read] ...\n[response] ...",
-    "answer": "Last assistant response",
-    "skill_ids": [],
-    "feedback": "OpenClaw session: 3 user messages, model: ..., 14605 tokens",
-    "ground_truth": None
-}
+```markdown
+## conversation_style
+
+### `conversation_style-00003`
+
+Maintain brief, natural responses without performative language
+
+**Justification:** Establishes consistent conversational tone across interaction types
+**Evidence:** Maintained direct, helpful tone across greeting, creative request,
+modification, and casual follow-up
+
+*Tags: helpful=5, harmful=0, neutral=0*
+
+## debugging
+
+### `debugging-00005`
+
+Test litellm calls directly before debugging ace_next pipeline
+
+**Justification:** Systematic debugging approach that isolated authentication issues
+**Evidence:** Direct litellm.completion() calls worked while ace_next failed
+
+*Tags: helpful=1, harmful=0, neutral=0*
 ```
 
-**TraceAnalyser** — Runs the ACE learning tail:
+---
 
-1. **Reflect** — LLM analyzes the trace for patterns, errors, and effective strategies
-2. **Tag** — Scores cited skills as helpful/harmful/neutral
-3. **Update** — LLM decides skillbook mutations (ADD, UPDATE, REMOVE, CONSOLIDATE)
-4. **Apply** — Commits changes to the in-memory skillbook
+## Reference
 
-## Configuration Reference
+### Environment variables
 
 | Variable | Default | Description |
 |---|---|---|
 | `ACE_MODEL` | `bedrock/us.anthropic.claude-sonnet-4-20250514-v1:0` | LLM for reflection and skill extraction |
 | `OPENCLAW_AGENT_ID` | `main` | Agent ID for session discovery |
-| `OPENCLAW_HOME` | `$HOME/.openclaw` | OpenClaw home directory (used by `ace-learn` only; do **not** set as a gateway env var — see [troubleshooting](#openclaw_home-double-nesting)) |
-| `LITELLM_API_KEY` | - | API key (for non-Bedrock providers) |
-| `LITELLM_API_BASE` | - | LiteLLM proxy base URL |
-| `SPH_LITELLM_KEY` | - | Alternative API key variable |
-| `AWS_BEARER_TOKEN_BEDROCK` | - | AWS Bedrock bearer token |
-| `ANTHROPIC_API_KEY` | - | Anthropic API key |
-| `OPENROUTER_API_KEY` | - | OpenRouter API key |
+| `OPENCLAW_HOME` | `$HOME/.openclaw` | OpenClaw home directory (used by `ace-learn` only) |
+| `LITELLM_API_KEY` | — | API key (for non-Bedrock providers) |
+| `SPH_LITELLM_KEY` | — | Alternative API key variable |
+| `AWS_BEARER_TOKEN_BEDROCK` | — | AWS Bedrock bearer token |
+| `ANTHROPIC_API_KEY` | — | Anthropic API key |
+| `OPENROUTER_API_KEY` | — | OpenRouter API key |
 
 ### CLI arguments
 
@@ -357,89 +384,67 @@ Positional:
   FILES              Specific JSONL files to process (skips discovery)
 ```
 
-## Example Skillbook Output
+### Pipeline steps
 
-After processing a few sessions, `ace_skillbook.md` might contain:
+**LoadTracesStep** — Reads a JSONL file and parses each line into a list of event dicts.
 
-```markdown
-## aws_bedrock
+**OpenClawToTraceStep** — Converts raw OpenClaw events into a structured trace:
 
-### `aws_bedrock-00001`
-
-Set API_KEY=None for Bedrock models to use AWS_BEARER_TOKEN_BEDROCK
-
-**Justification:** Enhanced specificity about AWS_BEARER_TOKEN_BEDROCK requirement
-**Evidence:** Pipeline succeeded after changing API_KEY logic to None for Bedrock models
-
-*Tags: helpful=1, harmful=0, neutral=0*
-
-## debugging
-
-### `debugging-00005`
-
-Test litellm calls directly before debugging ace_next pipeline
-
-**Justification:** Systematic debugging approach that isolated authentication issues
-**Evidence:** Direct litellm.completion() calls worked while ace_next failed
-
-*Tags: helpful=1, harmful=0, neutral=0*
+```python
+{
+    "question": "User: ...\n\nUser: ...",
+    "reasoning": "[thinking] ...\n[tool:read] ...\n[response] ...",
+    "answer": "Last assistant response",
+    "skill_ids": [],
+    "feedback": "OpenClaw session: 3 user messages, 1 assistant responses, model: ..., 14605 tokens",
+    "ground_truth": None
+}
 ```
+
+**TraceAnalyser** — Runs the ACE learning tail:
+
+1. **Reflect** — LLM analyzes the trace for patterns, errors, and effective strategies
+2. **Tag** — Scores cited skills as helpful/harmful/neutral
+3. **Update** — LLM decides skillbook mutations (ADD, UPDATE, REMOVE, CONSOLIDATE)
+4. **Apply** — Commits changes to the in-memory skillbook
+
+---
 
 ## Troubleshooting
 
-### "Sessions directory not found"
+??? question "Sessions directory not found"
+    The agent hasn't completed a session yet, or `OPENCLAW_AGENT_ID` is wrong. Check:
 
-The agent hasn't run yet, or `OPENCLAW_AGENT_ID` is wrong. Check:
+    ```bash
+    ls ~/.openclaw/agents/
+    ```
 
-```bash
-ls ~/.openclaw/agents/
-```
+??? question "Nothing new to learn from"
+    All sessions have been processed. Use `--reprocess` to rerun, or wait for new sessions.
 
-### "Nothing new to learn from"
+??? question "`ace-learn` not found in Docker"
+    Make sure you built with `Dockerfile.ace` and are using the correct image tag:
 
-All sessions have been processed. Use `--reprocess` to rerun, or wait for new sessions.
+    ```bash
+    docker run --rm openclaw:local which ace-learn
+    ```
 
-### `ace-learn` not found in Docker
+??? question "Import errors for `ace_next` (host setup)"
+    The Docker image includes a cloned copy of the ACE repo at `/opt/ace` with all dependencies pre-installed — this is handled by `Dockerfile.ace`. For the host setup, make sure you run from the ACE repo root with `uv run` so that `ace_next` is importable:
 
-Make sure you built with `Dockerfile.ace` and are using the correct image tag:
+    ```bash
+    cd /path/to/agentic-context-engine
+    uv run python ~/.openclaw/workspace/skills/kayba-ace/learn_from_traces.py
+    ```
 
-```bash
-docker run --rm openclaw:local which ace-learn
-```
+??? question "API key errors in Docker"
+    Make sure your LLM API key is passed through `docker-compose.yml`. Check with:
 
-### Import errors for `ace_next` (host setup)
+    ```bash
+    docker compose exec openclaw-gateway env | grep -E 'API_KEY|BEARER_TOKEN|ACE_MODEL'
+    ```
 
-Make sure you run from the ACE repo root with `uv run`:
-
-```bash
-cd /path/to/agentic-context-engine
-uv run python ~/.openclaw/workspace/skills/kayba-ace/learn_from_traces.py
-```
-
-### JSON parsing errors with Haiku models
-
-The deployed script includes a monkey-patch to strip control characters from LLM responses. If you see `Invalid control character` errors, make sure you're using the latest version of the script.
-
-### API key errors in Docker
-
-Make sure your LLM API key is passed through `docker-compose.yml`. Check with:
-
-```bash
-docker compose exec openclaw-gateway env | grep -E 'API_KEY|BEARER_TOKEN|ACE_MODEL'
-```
-
-### OPENCLAW_HOME double-nesting
-
-If the gateway reads a bare-bones config (missing Telegram, models, credentials) or you see paths like `/home/node/.openclaw/.openclaw/`, the `OPENCLAW_HOME` environment variable is being set inside the container. OpenClaw derives its data directory from `$HOME/.openclaw/`; setting `OPENCLAW_HOME` explicitly causes it to nest a second `.openclaw/` inside the mount.
-
-**Fix:** Make sure `OPENCLAW_HOME` is **not** set as a gateway environment variable. If you're using an older version of `Dockerfile.ace` that sets `ENV OPENCLAW_HOME`, either rebuild with the latest Dockerfile or unset it in your `docker-compose.yml`:
-
-```yaml
-environment:
-  OPENCLAW_HOME:   # empty value unsets the Dockerfile ENV
-```
-
-`ace-learn` uses `OPENCLAW_HOME` internally with a safe fallback — this is fine and does not affect the gateway.
+---
 
 ## What to Read Next
 
