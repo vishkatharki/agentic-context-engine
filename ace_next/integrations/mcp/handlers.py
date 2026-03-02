@@ -17,16 +17,18 @@ from ace_next.integrations.mcp.errors import (
     ACEMCPError,
     ForbiddenInSafeModeError,
     InternalError,
+    SaveLoadDisabledError,
     ValidationError,
 )
 from ace_next.core.environments import Sample
+from ace_next.core.skillbook import Skill
 
 class MCPHandlers:
     def __init__(self, registry: SessionRegistry, config: MCPServerConfig):
         self.registry = registry
         self.config = config
 
-    async def _get_session_kwargs(self, config_model) -> tuple[str | None, dict[str, Any]]:
+    def _get_session_kwargs(self, config_model) -> tuple[str | None, dict[str, Any]]:
         target_model = None
         kwargs: dict[str, Any] = {}
         if config_model:
@@ -68,21 +70,18 @@ class MCPHandlers:
     async def handle_ask(self, request: AskRequest) -> AskResponse:
         self._enforce_prompt_limit(len(request.question) + len(request.context), "ask")
 
-        target_model, kwargs = await self._get_session_kwargs(request.session_config)
+        target_model, kwargs = self._get_session_kwargs(request.session_config)
         session = await self.registry.get_or_create(request.session_id, model=target_model, **kwargs)
-        
+
         async with session.lock:
             try:
                 answer = await asyncio.to_thread(session.runner.ask, request.question, request.context)
-                
-                applied_skill_ids = []
                 skill_count = len(session.runner.skillbook.skills())
-                
+
                 return AskResponse(
                     session_id=request.session_id,
                     answer=str(answer),
                     skill_count=skill_count,
-                    applied_skill_ids=applied_skill_ids
                 )
             except ACEMCPError:
                 raise
@@ -91,34 +90,38 @@ class MCPHandlers:
 
     async def handle_skillbook_get(self, request: SkillbookGetRequest) -> SkillbookGetResponse:
         session = await self.registry.get(request.session_id)
-        
+
         async with session.lock:
             try:
                 skillbook = session.runner.skillbook
                 skills = skillbook.skills(include_invalid=request.include_invalid)
-                
+
                 limited_skills = []
                 for s in skills:
-                    s_id = getattr(s, 'id', str(len(limited_skills)))
-                    s_content = getattr(s, 'content', str(s))
-                    s_topic = getattr(s, 'section', None)
-                    s_helpful = getattr(s, 'helpful', None)
-                    s_harmful = getattr(s, 'harmful', None)
-                    s_neutral = getattr(s, 'neutral', None)
-                    
-                    limited_skills.append(SkillItem(
-                        id=str(s_id),
-                        content=str(s_content),
-                        topic=str(s_topic) if s_topic else None,
-                        helpful=int(s_helpful) if s_helpful is not None else None,
-                        harmful=int(s_harmful) if s_harmful is not None else None,
-                        neutral=int(s_neutral) if s_neutral is not None else None
-                    ))
-                
+                    if isinstance(s, Skill):
+                        limited_skills.append(SkillItem(
+                            id=s.id,
+                            content=s.content,
+                            topic=s.section,
+                            helpful=s.helpful,
+                            harmful=s.harmful,
+                            neutral=s.neutral,
+                        ))
+                    else:
+                        # Defensive fallback for non-standard skill objects
+                        limited_skills.append(SkillItem(
+                            id=getattr(s, 'id', str(len(limited_skills))),
+                            content=getattr(s, 'content', str(s)),
+                            topic=getattr(s, 'section', None),
+                            helpful=getattr(s, 'helpful', None),
+                            harmful=getattr(s, 'harmful', None),
+                            neutral=getattr(s, 'neutral', None),
+                        ))
+
                 limited_skills = limited_skills[:request.limit]
-                
+
                 stats = skillbook.stats()
-                
+
                 return SkillbookGetResponse(
                     session_id=request.session_id,
                     stats=stats,
@@ -147,10 +150,10 @@ class MCPHandlers:
                 len(s.question) + len(s.context),
                 f"samples[{idx}]",
             )
-            
-        target_model, kwargs = await self._get_session_kwargs(request.session_config)
+
+        target_model, kwargs = self._get_session_kwargs(request.session_config)
         session = await self.registry.get_or_create(request.session_id, model=target_model, **kwargs)
-        
+
         async with session.lock:
             try:
                 samples = []
@@ -161,7 +164,7 @@ class MCPHandlers:
                         ground_truth=s.ground_truth,
                         metadata=s.metadata or {}
                     ))
-                    
+
                 count_before = len(session.runner.skillbook.skills())
 
                 results = await asyncio.to_thread(
@@ -198,10 +201,10 @@ class MCPHandlers:
             + len(request.feedback),
             "learn.feedback",
         )
-            
-        target_model, kwargs = await self._get_session_kwargs(request.session_config)
+
+        target_model, kwargs = self._get_session_kwargs(request.session_config)
         session = await self.registry.get_or_create(request.session_id, model=target_model, **kwargs)
-        
+
         async with session.lock:
             try:
                 count_before = len(session.runner.skillbook.skills())
@@ -218,7 +221,7 @@ class MCPHandlers:
                     # No prior ask interaction — build a trace and learn
                     trace = {
                         "question": request.question,
-                        "reasoning": request.context,
+                        "context": request.context,
                         "answer": request.answer,
                         "skill_ids": [],
                         "feedback": request.feedback,
@@ -230,13 +233,12 @@ class MCPHandlers:
 
                 count_after = len(session.runner.skillbook.skills())
 
-                new_skill_count = max(0, count_after - count_before)
                 return LearnFeedbackResponse(
                     session_id=request.session_id,
-                    learned=new_skill_count > 0,
+                    learned=True,
                     skill_count_before=count_before,
                     skill_count_after=count_after,
-                    new_skill_count=new_skill_count,
+                    new_skill_count=max(0, count_after - count_before),
                 )
             except ACEMCPError:
                 raise
@@ -244,18 +246,20 @@ class MCPHandlers:
                 raise InternalError(str(e))
 
     async def handle_skillbook_save(self, request: SkillbookSaveRequest) -> SkillbookSaveResponse:
-        if self.config.safe_mode or not self.config.allow_save_load:
+        if self.config.safe_mode:
             raise ForbiddenInSafeModeError("ace.skillbook.save")
+        if not self.config.allow_save_load:
+            raise SaveLoadDisabledError("ace.skillbook.save")
 
         self._validate_skillbook_path(request.path)
-            
+
         session = await self.registry.get(request.session_id)
-        
+
         async with session.lock:
             try:
                 await asyncio.to_thread(session.runner.save, request.path)
                 skill_count = len(session.runner.skillbook.skills())
-                
+
                 return SkillbookSaveResponse(
                     session_id=request.session_id,
                     path=request.path,
@@ -267,18 +271,20 @@ class MCPHandlers:
                 raise InternalError(str(e))
 
     async def handle_skillbook_load(self, request: SkillbookLoadRequest) -> SkillbookLoadResponse:
-        if self.config.safe_mode or not self.config.allow_save_load:
+        if self.config.safe_mode:
             raise ForbiddenInSafeModeError("ace.skillbook.load")
+        if not self.config.allow_save_load:
+            raise SaveLoadDisabledError("ace.skillbook.load")
 
         self._validate_skillbook_path(request.path)
-            
+
         session = await self.registry.get_or_create(request.session_id)
-        
+
         async with session.lock:
             try:
                 await asyncio.to_thread(session.runner.load, request.path)
                 skill_count = len(session.runner.skillbook.skills())
-                
+
                 return SkillbookLoadResponse(
                     session_id=request.session_id,
                     path=request.path,

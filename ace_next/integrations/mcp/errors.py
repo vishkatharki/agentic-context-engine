@@ -19,6 +19,10 @@ class ForbiddenInSafeModeError(ACEMCPError):
     def __init__(self, tool_name: str):
         super().__init__(f"Tool {tool_name} is forbidden in safe mode", "ACE_MCP_FORBIDDEN_IN_SAFE_MODE", {"tool_name": tool_name})
 
+class SaveLoadDisabledError(ACEMCPError):
+    def __init__(self, tool_name: str):
+        super().__init__(f"Tool {tool_name} is disabled (allow_save_load=false)", "ACE_MCP_SAVE_LOAD_DISABLED", {"tool_name": tool_name})
+
 class ProviderError(ACEMCPError):
     def __init__(self, message: str, details: dict | None = None):
         super().__init__(message, "ACE_MCP_PROVIDER_ERROR", details)

@@ -168,7 +168,8 @@ Environment variable mapping (MVP):
 
 - `ACE_MCP_VALIDATION_ERROR`
 - `ACE_MCP_SESSION_NOT_FOUND`
-- `ACE_MCP_FORBIDDEN_IN_SAFE_MODE`
+- `ACE_MCP_FORBIDDEN_IN_SAFE_MODE` — mutating tool called with `safe_mode=true`
+- `ACE_MCP_SAVE_LOAD_DISABLED` — save/load tool called with `allow_save_load=false` (independent of safe mode)
 - `ACE_MCP_PROVIDER_ERROR`
 - `ACE_MCP_TIMEOUT`
 - `ACE_MCP_INTERNAL_ERROR`
@@ -178,6 +179,24 @@ Each error must include:
 - `code` (stable string)
 - `message` (human-readable)
 - `details` (optional structured dict)
+
+## Design Notes
+
+### `ace.ask` response
+
+The `applied_skill_ids` field was removed from the `ace.ask` response. The underlying `ACELiteLLM.ask()` does not track which skills were applied during generation, so the field was always empty. Removed to avoid a misleading contract.
+
+### `ace.learn.feedback` response
+
+The `learned` field reports `True` when the feedback handler successfully executed the learning path (either direct feedback or trace-based fallback), regardless of whether new skills were created. This avoids false negatives when the reflector modifies existing skills without adding new ones.
+
+### `ace.learn.feedback` fallback trace
+
+When no prior `ask()` exists for the session, the handler builds a synthetic trace. The `context` field maps to `context` (not `reasoning`) in the trace dict, since context is background information and reasoning is the agent's chain of thought.
+
+### MCP learning limitations
+
+Learning through MCP (`ace.learn.sample`) does not provide a task environment. The pipeline's EvaluateStep uses `ground_truth` comparison only. Environment-based evaluation is not available through MCP in the MVP.
 
 ## Security & Safety
 
