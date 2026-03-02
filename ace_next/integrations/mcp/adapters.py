@@ -117,7 +117,9 @@ def register_tools(server: Any, handlers: MCPHandlers) -> None:
             request_cls, handler_method = entry
             req = request_cls(**args)
             resp = await getattr(handlers, handler_method)(req)
-            return [types.TextContent(type="text", text=resp.model_dump_json())]
+            return types.CallToolResult(
+                content=[types.TextContent(type="text", text=resp.model_dump_json())],
+            )
 
         except Exception as e:
             mcp_err = map_error_to_mcp(e)

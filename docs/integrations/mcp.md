@@ -40,6 +40,7 @@ All settings are read from environment variables with the `ACE_MCP_` prefix:
 | `ACE_MCP_MAX_SAMPLES_PER_CALL` | `25` | Maximum number of samples accepted in a single `ace.learn.sample` call. |
 | `ACE_MCP_MAX_PROMPT_CHARS` | `100000` | Maximum total characters across question + context fields. |
 | `ACE_MCP_SESSION_TTL_SECONDS` | `3600` | Idle time (seconds) before a session is garbage-collected. |
+| `ACE_MCP_LEARN_TIMEOUT_SECONDS` | `300` | Maximum seconds for a single `ace.learn.sample` or `ace.learn.feedback` call before returning `ACE_MCP_TIMEOUT`. |
 | `ACE_MCP_SKILLBOOK_ROOT` | unset | If set, `ace.skillbook.save` and `ace.skillbook.load` reject paths outside this directory. |
 | `ACE_MCP_LOG_LEVEL` | `INFO` | Server log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`). Logs go to stderr. |
 
@@ -112,9 +113,9 @@ Save the session's skillbook to a file on disk.
 | `session_id` | string | yes | Session identifier. |
 | `path` | string | yes | File path to save to. |
 
-Returns: `path`, `saved_skill_count`.
+Returns: `path` (resolved absolute path), `saved_skill_count`.
 
-Blocked by: `ACE_MCP_SAFE_MODE=true` (`ACE_MCP_FORBIDDEN_IN_SAFE_MODE`) or `ACE_MCP_ALLOW_SAVE_LOAD=false` (`ACE_MCP_SAVE_LOAD_DISABLED`). Path must be under `ACE_MCP_SKILLBOOK_ROOT` if configured.
+Blocked by: `ACE_MCP_SAFE_MODE=true` (`ACE_MCP_FORBIDDEN_IN_SAFE_MODE`) or `ACE_MCP_ALLOW_SAVE_LOAD=false` (`ACE_MCP_SAVE_LOAD_DISABLED`). The path is resolved to a canonical absolute path before validation and file I/O. Must be under `ACE_MCP_SKILLBOOK_ROOT` if configured.
 
 ### `ace.skillbook.load`
 
@@ -125,9 +126,9 @@ Load a skillbook from disk into the session, replacing the current one.
 | `session_id` | string | yes | Session identifier. |
 | `path` | string | yes | File path to load from. |
 
-Returns: `path`, `skill_count`.
+Returns: `path` (resolved absolute path), `skill_count`.
 
-Blocked by: `ACE_MCP_SAFE_MODE=true` (`ACE_MCP_FORBIDDEN_IN_SAFE_MODE`) or `ACE_MCP_ALLOW_SAVE_LOAD=false` (`ACE_MCP_SAVE_LOAD_DISABLED`). Path must be under `ACE_MCP_SKILLBOOK_ROOT` if configured.
+Blocked by: `ACE_MCP_SAFE_MODE=true` (`ACE_MCP_FORBIDDEN_IN_SAFE_MODE`) or `ACE_MCP_ALLOW_SAVE_LOAD=false` (`ACE_MCP_SAVE_LOAD_DISABLED`). The path is resolved to a canonical absolute path before validation and file I/O. Must be under `ACE_MCP_SKILLBOOK_ROOT` if configured.
 
 ## Session Model
 

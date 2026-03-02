@@ -10,6 +10,7 @@ class MCPServerConfig(BaseSettings):
     max_prompt_chars: int = Field(default=100_000)
     session_ttl_seconds: int = Field(default=3600)
     allow_save_load: bool = Field(default=True)
+    learn_timeout_seconds: int = Field(default=300)
     skillbook_root: str | None = Field(default=None)
     log_level: str = Field(default="INFO")
 

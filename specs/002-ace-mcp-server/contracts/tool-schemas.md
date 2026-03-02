@@ -266,7 +266,7 @@ This document defines the canonical request/response schemas for MCP tools expos
 }
 ```
 
-Path policy: if server config sets `ACE_MCP_SKILLBOOK_ROOT`, `path` MUST resolve inside that directory; otherwise return `ACE_MCP_VALIDATION_ERROR`.
+Path policy: the server resolves the user-provided `path` to a canonical absolute path (following symlinks, resolving `..`) before validation and file I/O. If `ACE_MCP_SKILLBOOK_ROOT` is set, the resolved path MUST be inside that directory; otherwise return `ACE_MCP_VALIDATION_ERROR`.
 
 ### Response
 
@@ -276,7 +276,7 @@ Path policy: if server config sets `ACE_MCP_SKILLBOOK_ROOT`, `path` MUST resolve
   "required": ["session_id", "path", "saved_skill_count"],
   "properties": {
     "session_id": { "type": "string" },
-    "path": { "type": "string" },
+    "path": { "type": "string", "description": "Resolved absolute path where the skillbook was saved." },
     "saved_skill_count": { "type": "integer", "minimum": 0 }
   },
   "additionalProperties": false
@@ -301,7 +301,7 @@ Path policy: if server config sets `ACE_MCP_SKILLBOOK_ROOT`, `path` MUST resolve
 }
 ```
 
-Path policy: if server config sets `ACE_MCP_SKILLBOOK_ROOT`, `path` MUST resolve inside that directory; otherwise return `ACE_MCP_VALIDATION_ERROR`.
+Path policy: the server resolves the user-provided `path` to a canonical absolute path (following symlinks, resolving `..`) before validation and file I/O. If `ACE_MCP_SKILLBOOK_ROOT` is set, the resolved path MUST be inside that directory; otherwise return `ACE_MCP_VALIDATION_ERROR`.
 
 ### Response
 
@@ -311,7 +311,7 @@ Path policy: if server config sets `ACE_MCP_SKILLBOOK_ROOT`, `path` MUST resolve
   "required": ["session_id", "path", "skill_count"],
   "properties": {
     "session_id": { "type": "string" },
-    "path": { "type": "string" },
+    "path": { "type": "string", "description": "Resolved absolute path the skillbook was loaded from." },
     "skill_count": { "type": "integer", "minimum": 0 }
   },
   "additionalProperties": false

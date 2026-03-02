@@ -151,6 +151,7 @@ examples/
 - `max_prompt_chars: int = 100_000`
 - `session_ttl_seconds: int = 3600`
 - `allow_save_load: bool = true`
+- `learn_timeout_seconds: int = 300`
 - `skillbook_root: str | None = null`
 - `log_level: str = "INFO"`
 
@@ -162,6 +163,7 @@ Environment variable mapping (MVP):
 - `ACE_MCP_MAX_PROMPT_CHARS`
 - `ACE_MCP_SESSION_TTL_SECONDS`
 - `ACE_MCP_ALLOW_SAVE_LOAD`
+- `ACE_MCP_LEARN_TIMEOUT_SECONDS`
 - `ACE_MCP_SKILLBOOK_ROOT`
 
 ## Error Taxonomy
@@ -198,10 +200,26 @@ When no prior `ask()` exists for the session, the handler builds a synthetic tra
 
 Learning through MCP (`ace.learn.sample`) does not provide a task environment. The pipeline's EvaluateStep uses `ground_truth` comparison only. Environment-based evaluation is not available through MCP in the MVP.
 
+### Learn timeout
+
+`ace.learn.sample` and `ace.learn.feedback` wrap their runner calls in `asyncio.wait_for` with `learn_timeout_seconds` (default 300s). When the timeout fires, the handler raises `ACE_MCP_TIMEOUT` instead of `ACE_MCP_INTERNAL_ERROR`.
+
+### Prompt limit fields
+
+The per-tool fields included in the `max_prompt_chars` check:
+
+- `ace.ask`: `question + context`
+- `ace.learn.sample`: `question + context` per sample (0-indexed in error messages)
+- `ace.learn.feedback`: `question + context + answer + feedback + ground_truth`
+
+### Save/load path resolution
+
+`ace.skillbook.save` and `ace.skillbook.load` resolve the user-provided path to an absolute canonical path (via `Path.resolve()`) before validation and before passing it to the runner. The response echoes the **resolved** path, not the raw input. This eliminates TOCTOU races with symlinks or `..` path components.
+
 ## Security & Safety
 
 - Safe mode blocks mutating operations by policy.
-- Path validation for save/load (reject paths outside `ACE_MCP_SKILLBOOK_ROOT` when set).
+- Path validation for save/load (reject paths outside `ACE_MCP_SKILLBOOK_ROOT` when set). Validation operates on the resolved canonical path.
 - Request size limits enforced before runner call.
 - No secret values logged in payload dumps.
 

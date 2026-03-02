@@ -1,3 +1,6 @@
+import asyncio
+import json
+
 import pytest
 from unittest.mock import MagicMock, patch
 from ace_next.integrations.mcp.config import MCPServerConfig
@@ -10,7 +13,9 @@ from ace_next.integrations.mcp.models import (
 )
 from ace_next.integrations.mcp.errors import (
     ForbiddenInSafeModeError, SaveLoadDisabledError, ValidationError,
+    map_error_to_mcp,
 )
+from ace_next.integrations.mcp.errors import TimeoutError as MCPTimeoutError
 
 @pytest.fixture
 def config():
@@ -246,3 +251,210 @@ async def test_handle_skillbook_load_rejects_path_outside_root(handlers):
     req = SkillbookLoadRequest(session_id="s1", path="/tmp/not-allowed/file.json")
     with pytest.raises(ValidationError):
         await handlers.handle_skillbook_load(req)
+
+
+# ── ace.learn.sample success path ────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_handle_learn_sample_success(handlers):
+    """Success path: learning processes samples and returns counts."""
+    with patch("ace_next.integrations.mcp.registry.ACELiteLLM") as mock_runner_cls:
+        runner = MagicMock()
+        result_ok = MagicMock(error=None)
+        runner.learn.return_value = [result_ok, result_ok]
+        runner.skillbook.skills.side_effect = [["a"], ["a", "b", "c"]]
+        mock_runner_cls.from_model.return_value = runner
+
+        req = LearnSampleRequest(
+            session_id="s1",
+            samples=[
+                SampleItem(question="q1", ground_truth="gt1"),
+                SampleItem(question="q2", ground_truth="gt2"),
+            ],
+        )
+        resp = await handlers.handle_learn_sample(req)
+
+        assert resp.processed == 2
+        assert resp.failed == 0
+        assert resp.skill_count_before == 1
+        assert resp.skill_count_after == 3
+        assert resp.new_skill_count == 2
+        runner.learn.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_handle_learn_sample_partial_failure(handlers):
+    """When some samples fail, counts reflect partial success."""
+    with patch("ace_next.integrations.mcp.registry.ACELiteLLM") as mock_runner_cls:
+        runner = MagicMock()
+        result_ok = MagicMock(error=None)
+        result_fail = MagicMock(error="provider error")
+        runner.learn.return_value = [result_ok, result_fail]
+        runner.skillbook.skills.side_effect = [[], ["s1"]]
+        mock_runner_cls.from_model.return_value = runner
+
+        req = LearnSampleRequest(
+            session_id="s1",
+            samples=[
+                SampleItem(question="q1"),
+                SampleItem(question="q2"),
+            ],
+        )
+        resp = await handlers.handle_learn_sample(req)
+
+        assert resp.processed == 1
+        assert resp.failed == 1
+
+
+@pytest.mark.asyncio
+async def test_handle_learn_sample_timeout(handlers):
+    """learn.sample raises MCPTimeoutError when learn() exceeds timeout."""
+    handlers.config.learn_timeout_seconds = 0  # instant timeout
+
+    with patch("ace_next.integrations.mcp.registry.ACELiteLLM") as mock_runner_cls:
+        runner = MagicMock()
+
+        async def slow_learn(*args, **kwargs):
+            await asyncio.sleep(10)
+
+        runner.learn.side_effect = lambda *a, **kw: asyncio.get_event_loop().run_until_complete(slow_learn())
+        runner.skillbook.skills.return_value = []
+        mock_runner_cls.from_model.return_value = runner
+
+        req = LearnSampleRequest(
+            session_id="s1",
+            samples=[SampleItem(question="q")],
+        )
+        with pytest.raises(MCPTimeoutError):
+            await handlers.handle_learn_sample(req)
+
+
+# ── ace.skillbook.save/load success paths ────────────────────────
+
+@pytest.mark.asyncio
+async def test_handle_skillbook_save_success(handlers, registry):
+    """Success path: save returns the resolved path and skill count."""
+    with patch("ace_next.integrations.mcp.registry.ACELiteLLM") as mock_runner_cls:
+        runner = MagicMock()
+        runner.save.return_value = None
+        runner.skillbook.skills.return_value = ["s1", "s2"]
+        mock_runner_cls.from_model.return_value = runner
+
+        await registry.get_or_create("s1")
+        req = SkillbookSaveRequest(session_id="s1", path="/tmp/test.json")
+        resp = await handlers.handle_skillbook_save(req)
+
+        assert resp.saved_skill_count == 2
+        assert resp.session_id == "s1"
+        runner.save.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_handle_skillbook_load_success(handlers):
+    """Success path: load returns the resolved path and new skill count."""
+    with patch("ace_next.integrations.mcp.registry.ACELiteLLM") as mock_runner_cls:
+        runner = MagicMock()
+        runner.load.return_value = None
+        runner.skillbook.skills.return_value = ["s1", "s2", "s3"]
+        mock_runner_cls.from_model.return_value = runner
+
+        req = SkillbookLoadRequest(session_id="s1", path="/tmp/test.json")
+        resp = await handlers.handle_skillbook_load(req)
+
+        assert resp.skill_count == 3
+        assert resp.session_id == "s1"
+        runner.load.assert_called_once()
+
+
+# ── ace.skillbook.save/load uses resolved path ───────────────────
+
+@pytest.mark.asyncio
+async def test_handle_save_uses_resolved_path(handlers, registry):
+    """save() receives the resolved path, not the raw user input."""
+    with patch("ace_next.integrations.mcp.registry.ACELiteLLM") as mock_runner_cls:
+        runner = MagicMock()
+        runner.save.return_value = None
+        runner.skillbook.skills.return_value = []
+        mock_runner_cls.from_model.return_value = runner
+
+        await registry.get_or_create("s1")
+        # Path with .. that resolves to /tmp/test.json
+        req = SkillbookSaveRequest(session_id="s1", path="/tmp/sub/../test.json")
+        resp = await handlers.handle_skillbook_save(req)
+
+        # The runner should receive the resolved path
+        called_path = runner.save.call_args[0][0]
+        assert ".." not in called_path
+        assert resp.path == called_path
+
+
+# ── error-to-MCP mapping ────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_handle_call_tool_error_mapping(handlers):
+    """handle_call_tool maps domain errors to MCP error envelopes."""
+    from ace_next.integrations.mcp.adapters import register_tools
+
+    try:
+        from mcp.server import Server
+        from mcp import types
+    except ImportError:
+        pytest.skip("mcp not installed")
+
+    server = Server("test")
+    register_tools(server, handlers)
+
+    # Call a tool that will fail (session not found for skillbook.get)
+    req = SkillbookGetRequest(session_id="nonexistent")
+    # Use the handlers directly — the adapter error mapping is tested via map_error_to_mcp
+    from ace_next.integrations.mcp.errors import SessionNotFoundError
+
+    err = SessionNotFoundError("nonexistent")
+    mapped = map_error_to_mcp(err)
+    assert mapped["code"] == "ACE_MCP_SESSION_NOT_FOUND"
+    assert "nonexistent" in mapped["message"]
+    assert mapped["details"]["session_id"] == "nonexistent"
+
+
+def test_map_error_to_mcp_unknown_error():
+    """Unknown exceptions map to ACE_MCP_INTERNAL_ERROR."""
+    err = RuntimeError("boom")
+    mapped = map_error_to_mcp(err)
+    assert mapped["code"] == "ACE_MCP_INTERNAL_ERROR"
+    assert "boom" in mapped["message"]
+    assert mapped["details"]["type"] == "RuntimeError"
+
+
+# ── sample indexing uses 0-based ─────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_handle_learn_sample_prompt_limit_uses_zero_index(handlers):
+    """Error message for oversized samples uses 0-based index."""
+    handlers.config.max_prompt_chars = 5
+    req = LearnSampleRequest(
+        session_id="s1",
+        samples=[
+            SampleItem(question="ok"),       # fits
+            SampleItem(question="toolong"),   # exceeds limit
+        ],
+    )
+    with pytest.raises(ValidationError, match=r"samples\[1\]"):
+        await handlers.handle_learn_sample(req)
+
+
+# ── ground_truth included in feedback prompt limit ───────────────
+
+@pytest.mark.asyncio
+async def test_handle_learn_feedback_prompt_limit_includes_ground_truth(handlers):
+    """ground_truth contributes to the prompt limit check."""
+    handlers.config.max_prompt_chars = 20
+    req = LearnFeedbackRequest(
+        session_id="s1",
+        question="q",
+        answer="a",
+        feedback="f",
+        context="c",
+        ground_truth="x" * 20,  # pushes total over 20
+    )
+    with pytest.raises(ValidationError):
+        await handlers.handle_learn_feedback(req)

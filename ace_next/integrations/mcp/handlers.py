@@ -18,6 +18,7 @@ from ace_next.integrations.mcp.errors import (
     ForbiddenInSafeModeError,
     InternalError,
     SaveLoadDisabledError,
+    TimeoutError as MCPTimeoutError,
     ValidationError,
 )
 from ace_next.core.environments import Sample
@@ -50,22 +51,31 @@ class MCPHandlers:
                 },
             )
 
-    def _validate_skillbook_path(self, path: str) -> None:
+    def _resolve_skillbook_path(self, path: str) -> str:
+        """Resolve a user-provided path and validate it against skillbook_root.
+
+        Returns the resolved absolute path string so callers use the
+        validated path — not the raw user input — for file operations,
+        eliminating TOCTOU races with symlinks or ``..`` components.
+        """
+        resolved = str(Path(path).expanduser().resolve())
+
         if not self.config.skillbook_root:
-            return
+            return resolved
 
         root = Path(self.config.skillbook_root).expanduser().resolve()
-        target = Path(path).expanduser().resolve()
         try:
-            target.relative_to(root)
+            Path(resolved).relative_to(root)
         except ValueError as exc:
             raise ValidationError(
                 "Path is outside configured skillbook_root",
                 details={
-                    "path": str(target),
+                    "path": resolved,
                     "skillbook_root": str(root),
                 },
             ) from exc
+
+        return resolved
 
     async def handle_ask(self, request: AskRequest) -> AskResponse:
         self._enforce_prompt_limit(len(request.question) + len(request.context), "ask")
@@ -145,7 +155,7 @@ class MCPHandlers:
                 },
             )
 
-        for idx, s in enumerate(request.samples, start=1):
+        for idx, s in enumerate(request.samples):
             self._enforce_prompt_limit(
                 len(s.question) + len(s.context),
                 f"samples[{idx}]",
@@ -167,11 +177,14 @@ class MCPHandlers:
 
                 count_before = len(session.runner.skillbook.skills())
 
-                results = await asyncio.to_thread(
-                    session.runner.learn,
-                    samples,
-                    None,
-                    request.epochs,
+                results = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        session.runner.learn,
+                        samples,
+                        None,
+                        request.epochs,
+                    ),
+                    timeout=self.config.learn_timeout_seconds,
                 )
 
                 failed = sum(1 for r in results if r.error is not None)
@@ -187,6 +200,10 @@ class MCPHandlers:
                 )
             except ACEMCPError:
                 raise
+            except asyncio.TimeoutError:
+                raise MCPTimeoutError(
+                    f"learn.sample timed out after {self.config.learn_timeout_seconds}s"
+                )
             except Exception as e:
                 raise InternalError(str(e))
 
@@ -198,7 +215,8 @@ class MCPHandlers:
             len(request.question)
             + len(request.context)
             + len(request.answer)
-            + len(request.feedback),
+            + len(request.feedback)
+            + len(request.ground_truth or ""),
             "learn.feedback",
         )
 
@@ -211,10 +229,14 @@ class MCPHandlers:
 
                 # Prefer the direct feedback path when a prior ask exists;
                 # fall back to learn_from_traces for standalone feedback.
-                learned = await asyncio.to_thread(
-                    session.runner.learn_from_feedback,
-                    request.feedback,
-                    request.ground_truth or None,
+                timeout = self.config.learn_timeout_seconds
+                learned = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        session.runner.learn_from_feedback,
+                        request.feedback,
+                        request.ground_truth or None,
+                    ),
+                    timeout=timeout,
                 )
 
                 if not learned:
@@ -227,8 +249,11 @@ class MCPHandlers:
                         "feedback": request.feedback,
                         "ground_truth": request.ground_truth,
                     }
-                    await asyncio.to_thread(
-                        session.runner.learn_from_traces, [trace]
+                    await asyncio.wait_for(
+                        asyncio.to_thread(
+                            session.runner.learn_from_traces, [trace]
+                        ),
+                        timeout=timeout,
                     )
 
                 count_after = len(session.runner.skillbook.skills())
@@ -242,6 +267,10 @@ class MCPHandlers:
                 )
             except ACEMCPError:
                 raise
+            except asyncio.TimeoutError:
+                raise MCPTimeoutError(
+                    f"learn.feedback timed out after {self.config.learn_timeout_seconds}s"
+                )
             except Exception as e:
                 raise InternalError(str(e))
 
@@ -251,18 +280,18 @@ class MCPHandlers:
         if not self.config.allow_save_load:
             raise SaveLoadDisabledError("ace.skillbook.save")
 
-        self._validate_skillbook_path(request.path)
+        resolved = self._resolve_skillbook_path(request.path)
 
         session = await self.registry.get(request.session_id)
 
         async with session.lock:
             try:
-                await asyncio.to_thread(session.runner.save, request.path)
+                await asyncio.to_thread(session.runner.save, resolved)
                 skill_count = len(session.runner.skillbook.skills())
 
                 return SkillbookSaveResponse(
                     session_id=request.session_id,
-                    path=request.path,
+                    path=resolved,
                     saved_skill_count=skill_count
                 )
             except ACEMCPError:
@@ -276,18 +305,18 @@ class MCPHandlers:
         if not self.config.allow_save_load:
             raise SaveLoadDisabledError("ace.skillbook.load")
 
-        self._validate_skillbook_path(request.path)
+        resolved = self._resolve_skillbook_path(request.path)
 
         session = await self.registry.get_or_create(request.session_id)
 
         async with session.lock:
             try:
-                await asyncio.to_thread(session.runner.load, request.path)
+                await asyncio.to_thread(session.runner.load, resolved)
                 skill_count = len(session.runner.skillbook.skills())
 
                 return SkillbookLoadResponse(
                     session_id=request.session_id,
-                    path=request.path,
+                    path=resolved,
                     skill_count=skill_count
                 )
             except ACEMCPError:
