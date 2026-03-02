@@ -182,16 +182,15 @@ BATCH = 3  # ~3 traces per call — subagents work best with small batches
 for i in range(0, len(steps), BATCH):
     batch = steps[i:i+BATCH]
     batch_data = json.dumps(batch, default=str)
-    criteria_prefix = (
-        f"Evaluate against these criteria:\\n{{eval_criteria}}\\n\\n"
+    criteria_ctx = (
+        f"EVALUATION CRITERIA:\\n{{eval_criteria}}\\n\\n---\\n\\n"
     ) if eval_criteria else ""
     result = ask_llm(
-        criteria_prefix +
         "For each trace/conversation below, give a brief summary: "
         "(1) what was requested, (2) what the agent did, "
         "(3) how it ended (success/failure/partial). "
         "Use the trace ID or index as the key.",
-        batch_data,
+        criteria_ctx + batch_data,
         mode="analysis"
     )
     print(f"Batch {{i//BATCH+1}}: {{result[:300]}}")
