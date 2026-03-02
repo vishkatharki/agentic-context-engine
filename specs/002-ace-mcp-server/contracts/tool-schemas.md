@@ -78,12 +78,7 @@ This document defines the canonical request/response schemas for MCP tools expos
   "properties": {
     "session_id": { "type": "string" },
     "answer": { "type": "string" },
-    "skill_count": { "type": "integer", "minimum": 0 },
-    "applied_skill_ids": {
-      "type": "array",
-      "items": { "type": "string" },
-      "default": []
-    }
+    "skill_count": { "type": "integer", "minimum": 0 }
   },
   "additionalProperties": false
 }
@@ -331,9 +326,16 @@ Path policy: if server config sets `ACE_MCP_SKILLBOOK_ROOT`, `path` MUST resolve
 |------|-----------------------------|
 | `ace.ask` | ✅ |
 | `ace.skillbook.get` | ✅ |
-| `ace.learn.sample` | ❌ |
-| `ace.learn.feedback` | ❌ |
-| `ace.skillbook.save` | ❌ |
-| `ace.skillbook.load` | ❌ |
+| `ace.learn.sample` | ❌ (`ACE_MCP_FORBIDDEN_IN_SAFE_MODE`) |
+| `ace.learn.feedback` | ❌ (`ACE_MCP_FORBIDDEN_IN_SAFE_MODE`) |
+| `ace.skillbook.save` | ❌ (`ACE_MCP_FORBIDDEN_IN_SAFE_MODE`) |
+| `ace.skillbook.load` | ❌ (`ACE_MCP_FORBIDDEN_IN_SAFE_MODE`) |
 
-Blocked calls must return `ACE_MCP_FORBIDDEN_IN_SAFE_MODE`.
+## Save/Load Policy
+
+When `allow_save_load=false` (independent of safe mode), `ace.skillbook.save` and `ace.skillbook.load` are blocked with `ACE_MCP_SAVE_LOAD_DISABLED`.
+
+| Tool | `safe_mode=false`, `allow_save_load=false` |
+|------|---------------------------------------------|
+| `ace.skillbook.save` | ❌ (`ACE_MCP_SAVE_LOAD_DISABLED`) |
+| `ace.skillbook.load` | ❌ (`ACE_MCP_SAVE_LOAD_DISABLED`) |

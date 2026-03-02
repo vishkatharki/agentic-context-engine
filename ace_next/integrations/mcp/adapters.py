@@ -34,10 +34,11 @@ def _mcp_schema(model: type) -> dict[str, Any]:
     """Return an MCP-friendly JSON schema for a Pydantic model.
 
     Some MCP clients (e.g. the Inspector) don't resolve ``$defs``/``$ref``
-    correctly and reject valid input as "additional properties".  This helper
-    inlines all ``$ref`` pointers and strips ``additionalProperties`` from the
-    published schema while keeping the Pydantic model's runtime validation
-    (``extra="forbid"``) intact.
+    correctly and reject valid input.  This helper inlines all ``$ref``
+    pointers so the schema is self-contained.
+
+    We keep ``additionalProperties: false`` in the published schema so
+    clients know that extra fields will be rejected by validation.
     """
     schema = model.model_json_schema()
     defs = schema.pop("$defs", {})
@@ -47,16 +48,24 @@ def _mcp_schema(model: type) -> dict[str, Any]:
             if "$ref" in obj:
                 ref_name = obj["$ref"].rsplit("/", 1)[-1]
                 return _resolve(defs.get(ref_name, {}))
-            return {
-                k: _resolve(v)
-                for k, v in obj.items()
-                if k != "additionalProperties"
-            }
+            return {k: _resolve(v) for k, v in obj.items()}
         if isinstance(obj, list):
             return [_resolve(item) for item in obj]
         return obj
 
     return _resolve(schema)
+
+
+# ── Tool dispatch table ────────────────────────────────────────────
+
+_TOOL_DISPATCH: dict[str, tuple[type, str]] = {
+    "ace.ask":              (AskRequest,              "handle_ask"),
+    "ace.learn.sample":     (LearnSampleRequest,      "handle_learn_sample"),
+    "ace.learn.feedback":   (LearnFeedbackRequest,    "handle_learn_feedback"),
+    "ace.skillbook.get":    (SkillbookGetRequest,     "handle_skillbook_get"),
+    "ace.skillbook.save":   (SkillbookSaveRequest,    "handle_skillbook_save"),
+    "ace.skillbook.load":   (SkillbookLoadRequest,    "handle_skillbook_load"),
+}
 
 
 def register_tools(server: Any, handlers: MCPHandlers) -> None:
@@ -101,38 +110,14 @@ def register_tools(server: Any, handlers: MCPHandlers) -> None:
     async def handle_call_tool(name: str, arguments: dict | None):
         args = arguments or {}
         try:
-            if name == "ace.ask":
-                req = AskRequest(**args)
-                resp = await handlers.handle_ask(req)
-                return [types.TextContent(type="text", text=resp.model_dump_json())]
-
-            elif name == "ace.learn.sample":
-                req = LearnSampleRequest(**args)
-                resp = await handlers.handle_learn_sample(req)
-                return [types.TextContent(type="text", text=resp.model_dump_json())]
-
-            elif name == "ace.learn.feedback":
-                req = LearnFeedbackRequest(**args)
-                resp = await handlers.handle_learn_feedback(req)
-                return [types.TextContent(type="text", text=resp.model_dump_json())]
-
-            elif name == "ace.skillbook.get":
-                req = SkillbookGetRequest(**args)
-                resp = await handlers.handle_skillbook_get(req)
-                return [types.TextContent(type="text", text=resp.model_dump_json())]
-
-            elif name == "ace.skillbook.save":
-                req = SkillbookSaveRequest(**args)
-                resp = await handlers.handle_skillbook_save(req)
-                return [types.TextContent(type="text", text=resp.model_dump_json())]
-
-            elif name == "ace.skillbook.load":
-                req = SkillbookLoadRequest(**args)
-                resp = await handlers.handle_skillbook_load(req)
-                return [types.TextContent(type="text", text=resp.model_dump_json())]
-
-            else:
+            entry = _TOOL_DISPATCH.get(name)
+            if entry is None:
                 raise ValueError(f"Unknown tool: {name}")
+
+            request_cls, handler_method = entry
+            req = request_cls(**args)
+            resp = await getattr(handlers, handler_method)(req)
+            return [types.TextContent(type="text", text=resp.model_dump_json())]
 
         except Exception as e:
             mcp_err = map_error_to_mcp(e)

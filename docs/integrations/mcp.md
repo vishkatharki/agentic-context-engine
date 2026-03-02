@@ -56,7 +56,7 @@ Ask a question using the current skillbook. Does **not** mutate the skillbook.
 | `context` | string | no | Additional context for the question. |
 | `session_config` | object | no | Override `model`, `temperature`, `max_tokens` for this session. |
 
-Returns: `answer`, `skill_count`, `applied_skill_ids`.
+Returns: `answer`, `skill_count`.
 
 ### `ace.learn.sample`
 
@@ -87,7 +87,7 @@ Provide feedback on a previous answer. If a prior `ace.ask` exists for the sessi
 | `ground_truth` | string | no | The correct answer. |
 | `session_config` | object | no | Override model settings. |
 
-Returns: `learned`, `skill_count_before`, `skill_count_after`, `new_skill_count`.
+Returns: `learned` (always `true` on success — the learning path executed), `skill_count_before`, `skill_count_after`, `new_skill_count`.
 
 Blocked by: `ACE_MCP_SAFE_MODE=true`.
 
@@ -114,7 +114,7 @@ Save the session's skillbook to a file on disk.
 
 Returns: `path`, `saved_skill_count`.
 
-Blocked by: `ACE_MCP_SAFE_MODE=true` or `ACE_MCP_ALLOW_SAVE_LOAD=false`. Path must be under `ACE_MCP_SKILLBOOK_ROOT` if configured.
+Blocked by: `ACE_MCP_SAFE_MODE=true` (`ACE_MCP_FORBIDDEN_IN_SAFE_MODE`) or `ACE_MCP_ALLOW_SAVE_LOAD=false` (`ACE_MCP_SAVE_LOAD_DISABLED`). Path must be under `ACE_MCP_SKILLBOOK_ROOT` if configured.
 
 ### `ace.skillbook.load`
 
@@ -127,7 +127,7 @@ Load a skillbook from disk into the session, replacing the current one.
 
 Returns: `path`, `skill_count`.
 
-Blocked by: `ACE_MCP_SAFE_MODE=true` or `ACE_MCP_ALLOW_SAVE_LOAD=false`. Path must be under `ACE_MCP_SKILLBOOK_ROOT` if configured.
+Blocked by: `ACE_MCP_SAFE_MODE=true` (`ACE_MCP_FORBIDDEN_IN_SAFE_MODE`) or `ACE_MCP_ALLOW_SAVE_LOAD=false` (`ACE_MCP_SAVE_LOAD_DISABLED`). Path must be under `ACE_MCP_SKILLBOOK_ROOT` if configured.
 
 ## Session Model
 

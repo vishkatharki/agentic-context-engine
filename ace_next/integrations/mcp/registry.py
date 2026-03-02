@@ -1,3 +1,4 @@
+import logging
 import time
 import asyncio
 from dataclasses import dataclass, field
@@ -6,6 +7,8 @@ from typing import Dict, Any
 from ace_next.runners import ACELiteLLM
 from ace_next.integrations.mcp.config import MCPServerConfig
 from ace_next.integrations.mcp.errors import SessionNotFoundError
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class Session:
@@ -23,14 +26,14 @@ class SessionRegistry:
 
     async def get_or_create(self, session_id: str, model: str | None = None, **runner_kwargs: Any) -> Session:
         """Get an existing session or create a new one, sweeping expired sessions first."""
-        await self._sweep_expired()
-        
         async with self._registry_lock:
+            self._sweep_expired()
+
             if session_id in self._sessions:
                 session = self._sessions[session_id]
                 session.last_accessed = time.time()
                 return session
-            
+
             # Create new runner
             target_model = model or self.config.default_model
             runner = ACELiteLLM.from_model(target_model, **runner_kwargs)
@@ -40,12 +43,12 @@ class SessionRegistry:
 
     async def get(self, session_id: str) -> Session:
         """Get an existing session. Raises SessionNotFoundError if not found."""
-        await self._sweep_expired()
-        
         async with self._registry_lock:
+            self._sweep_expired()
+
             if session_id not in self._sessions:
                 raise SessionNotFoundError(session_id)
-            
+
             session = self._sessions[session_id]
             session.last_accessed = time.time()
             return session
@@ -53,17 +56,30 @@ class SessionRegistry:
     async def delete(self, session_id: str) -> None:
         """Delete a session if it exists."""
         async with self._registry_lock:
-            self._sessions.pop(session_id, None)
+            session = self._sessions.pop(session_id, None)
+            if session is not None:
+                self._drain_session(session)
 
-    async def _sweep_expired(self) -> None:
-        """Remove sessions that have exceeded the TTL."""
+    def _sweep_expired(self) -> None:
+        """Remove sessions that have exceeded the TTL.
+
+        Must be called while holding ``_registry_lock``.
+        """
         now = time.time()
         ttl = self.config.session_ttl_seconds
-        
-        async with self._registry_lock:
-            expired = [
-                sid for sid, session in self._sessions.items()
-                if now - session.last_accessed > ttl
-            ]
-            for sid in expired:
-                del self._sessions[sid]
+
+        expired = [
+            sid for sid, session in self._sessions.items()
+            if now - session.last_accessed > ttl
+        ]
+        for sid in expired:
+            session = self._sessions.pop(sid)
+            self._drain_session(session)
+
+    @staticmethod
+    def _drain_session(session: Session) -> None:
+        """Best-effort wait for any in-progress background learning."""
+        try:
+            session.runner.wait_for_background(timeout=2.0)
+        except Exception:
+            logger.debug("Failed to drain session %s", session.session_id, exc_info=True)
