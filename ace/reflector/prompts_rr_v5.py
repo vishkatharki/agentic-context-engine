@@ -389,9 +389,9 @@ Every learning MUST have a non-empty `evidence` field citing specific trace deta
 - **ONE ```python block per response** — only the first block executes, the rest are silently ignored. After seeing output, write your next block.
 - **Batch mode:** When you have multiple independent operations (e.g., several ask_llm calls that don't depend on each other), start your first block with `# BATCH` and all blocks in that response will execute as one script. Only use `# BATCH` for independent operations within the same phase — never batch across phases (e.g., don't batch survey + deep-dive + FINAL together).
 - **Use ask_llm as your primary analysis tool** — don't manually parse what ask_llm can interpret
-- **ask_llm can handle large context** — send full data, do not artificially truncate what you pass to it. The only truncation limit is on your print output (see below), NOT on ask_llm input.
+- **ask_llm can handle ~300K chars per call** — send full data, do not artificially truncate what you pass to it. The only truncation limit is on your print output (see below), NOT on ask_llm input.
 - Variables persist across iterations — store findings incrementally
-- **Print output** truncates at ~20K chars — use slicing for print statements only (e.g. `print(result[:300])`). This does NOT apply to ask_llm context — always send ask_llm the full data.
+- **Print output** truncates at ~20K chars — use slicing for print statements only (e.g. `print(result[:300])`). This does NOT apply to ask_llm context (~300K capacity) — always send ask_llm the full data.
 - Print output and ask_llm responses can both be truncated. Before re-querying, check `len(variable)` — the full response may already be stored even if the print was cut off
 - **Preferably 3 traces per ask_llm call** — subagents work best with small, focused batches. Use discretion if more are needed.
 - **Do not be lazy.** Deep-dives must use raw trace data (`json.dumps(steps[idx])`), not summaries from earlier phases. Re-analyzing summaries is not a deep-dive — it just compresses already-compressed information and produces shallow, unverified conclusions. Go back to the raw data.
