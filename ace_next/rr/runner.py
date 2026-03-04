@@ -39,7 +39,7 @@ def _preview(text: str | None, max_len: int = 150) -> str:
     return snippet.replace("{", "{{").replace("}", "}}")
 
 
-class RRStep(SubRunner):
+class RRStep(SubRunner[ACEStepContext]):
     """Recursive Reflector as a pipeline step (SubRunner pattern).
 
     Satisfies **StepProtocol** (place directly in a Pipeline) and
@@ -176,7 +176,7 @@ class RRStep(SubRunner):
     # StepProtocol entry
     # ------------------------------------------------------------------
 
-    def __call__(self, ctx: ACEStepContext) -> ACEStepContext:  # type: ignore[override]
+    def __call__(self, ctx: ACEStepContext) -> ACEStepContext:
         """Run the Recursive Reflector and attach the reflection to *ctx*."""
         trace = ctx.trace or {}
         if isinstance(trace, dict):

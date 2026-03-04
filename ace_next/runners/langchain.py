@@ -100,9 +100,9 @@ class LangChain(ACERunner):
 
             dm = DeduplicationManager(dedup_config)
 
-        steps: list[StepProtocol] = [
-            LangChainExecuteStep(runnable, output_parser=output_parser),  # type: ignore[list-item]
-            LangChainToTrace(),  # type: ignore[list-item]
+        steps: list[StepProtocol[ACEStepContext]] = [
+            LangChainExecuteStep(runnable, output_parser=output_parser),
+            LangChainToTrace(),
             *learning_tail(
                 reflector,
                 skill_manager,
