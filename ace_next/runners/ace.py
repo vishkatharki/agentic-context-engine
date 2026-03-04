@@ -74,9 +74,9 @@ class ACE(ACERunner):
                 tail (e.g. ``OpikStep``).
         """
         skillbook = skillbook or Skillbook()
-        steps: list[StepProtocol] = [
-            AgentStep(agent),  # type: ignore[list-item]
-            EvaluateStep(environment),  # type: ignore[list-item]
+        steps: list[StepProtocol[ACEStepContext]] = [
+            AgentStep(agent),
+            EvaluateStep(environment),
             *learning_tail(
                 reflector,
                 skill_manager,

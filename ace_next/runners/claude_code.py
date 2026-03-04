@@ -102,14 +102,14 @@ class ClaudeCode(ACERunner):
 
             dm = DeduplicationManager(dedup_config)
 
-        steps: list[StepProtocol] = [
-            ClaudeCodeExecuteStep(  # type: ignore[list-item]
+        steps: list[StepProtocol[ACEStepContext]] = [
+            ClaudeCodeExecuteStep(
                 working_dir=working_dir,
                 timeout=timeout,
                 model=model,
                 allowed_tools=allowed_tools,
             ),
-            ClaudeCodeToTrace(),  # type: ignore[list-item]
+            ClaudeCodeToTrace(),
             *learning_tail(
                 reflector,
                 skill_manager,

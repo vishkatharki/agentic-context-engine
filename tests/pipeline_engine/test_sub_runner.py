@@ -30,7 +30,7 @@ class IncrementStep:
     requires = frozenset()
     provides = frozenset({"counter", "done"})
 
-    def __call__(self, ctx: CounterContext) -> CounterContext:  # type: ignore[override]
+    def __call__(self, ctx: CounterContext) -> CounterContext:
         new_counter = ctx.counter + 1
         return ctx.replace(counter=new_counter, done=new_counter >= ctx.target)
 
@@ -158,7 +158,7 @@ class TestSubRunnerInnerPipeline:
             requires = frozenset()
             provides = frozenset()
 
-            def __call__(self, ctx: CounterContext) -> CounterContext:  # type: ignore[override]
+            def __call__(self, ctx: CounterContext) -> CounterContext:
                 iteration_log.append(ctx.counter)
                 return ctx
 

@@ -19,14 +19,20 @@ can be placed directly in a Pipeline.
 from __future__ import annotations
 
 import abc
-from typing import Any
+from typing import Any, Generic, TypeVar
 
 from pipeline.context import StepContext
 from pipeline.pipeline import Pipeline
 
+Ctx = TypeVar("Ctx", bound=StepContext)
 
-class SubRunner(abc.ABC):
+
+class SubRunner(abc.ABC, Generic[Ctx]):
     """Base for steps that run an internal Pipeline in a loop.
+
+    Generic over the outer context type (``Ctx``) used by ``__call__``
+    to satisfy ``StepProtocol[Ctx]``.  Template methods operate on the
+    *inner* context (which may be a different ``StepContext`` subclass).
 
     Concrete subclasses must set ``requires`` and ``provides`` (as
     ``frozenset[str]``) and implement the five template methods plus
@@ -102,5 +108,5 @@ class SubRunner(abc.ABC):
     # ------------------------------------------------------------------
 
     @abc.abstractmethod
-    def __call__(self, ctx: StepContext) -> StepContext:
+    def __call__(self, ctx: Ctx) -> Ctx:
         """StepProtocol entry point — run the loop and attach results."""

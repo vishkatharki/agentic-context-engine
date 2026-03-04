@@ -100,9 +100,9 @@ class BrowserUse(ACERunner):
 
             dm = DeduplicationManager(dedup_config)
 
-        steps: list[StepProtocol] = [
-            BrowserExecuteStep(browser_llm, browser=browser, **(agent_kwargs or {})),  # type: ignore[list-item]
-            BrowserToTrace(),  # type: ignore[list-item]
+        steps: list[StepProtocol[ACEStepContext]] = [
+            BrowserExecuteStep(browser_llm, browser=browser, **(agent_kwargs or {})),  # type: ignore[list-item]  # async step
+            BrowserToTrace(),
             *learning_tail(
                 reflector,
                 skill_manager,
