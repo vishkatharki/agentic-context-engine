@@ -22,8 +22,10 @@ from .implementations import Agent, Reflector, SkillManager
 from .protocols import DeduplicationConfig
 from .integrations import wrap_skillbook_context
 from .providers import (
+    ACEModelConfig,
     InstructorClient,
     LiteLLMClient,
+    ModelConfig,
     wrap_with_instructor,
 )
 
@@ -81,10 +83,12 @@ __all__ = [
     "Agent",
     "Reflector",
     "SkillManager",
-    # LLM providers
+    # LLM providers + config
     "LiteLLMClient",
     "InstructorClient",
     "wrap_with_instructor",
+    "ModelConfig",
+    "ACEModelConfig",
     # Runners
     "ACE",
     "ACELiteLLM",

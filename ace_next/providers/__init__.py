@@ -10,8 +10,10 @@ from __future__ import annotations
 
 from typing import Optional
 
+from .config import ACEModelConfig, ModelConfig, load_config, save_config
 from .instructor import InstructorClient, wrap_with_instructor
 from .litellm import LiteLLMClient, LiteLLMConfig, LLMResponse
+from .registry import ValidationResult, search_models, validate_connection
 
 # Optional providers — soft imports -------------------------------------------
 
@@ -41,6 +43,15 @@ except ImportError:
     ClaudeCodeLLMConfig = None  # type: ignore[assignment]
 
 __all__ = [
+    # Config
+    "ModelConfig",
+    "ACEModelConfig",
+    "load_config",
+    "save_config",
+    # Registry
+    "ValidationResult",
+    "validate_connection",
+    "search_models",
     # LiteLLM
     "LiteLLMClient",
     "LiteLLMConfig",
