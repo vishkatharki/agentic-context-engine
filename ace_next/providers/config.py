@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 import tomllib
-from dataclasses import asdict, dataclass, field, fields
+from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any
 
@@ -198,12 +198,12 @@ def save_env_var(key: str, value: str, directory: str | Path = ".") -> None:
     if path.exists():
         for line in path.read_text(encoding="utf-8").splitlines():
             if line.startswith(f"{key}="):
-                lines.append(f"{key}={value}")
+                lines.append(f'{key}="{value}"')
                 found = True
             else:
                 lines.append(line)
 
     if not found:
-        lines.append(f"{key}={value}")
+        lines.append(f'{key}="{value}"')
 
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")

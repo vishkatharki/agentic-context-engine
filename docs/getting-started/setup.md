@@ -169,7 +169,7 @@ ACE uses [LiteLLM](https://docs.litellm.ai/) for model access. Any model string 
 |----------|--------------|--------------|
 | OpenAI | `gpt-4o-mini` | `OPENAI_API_KEY` |
 | Anthropic | `claude-sonnet-4-20250514` | `ANTHROPIC_API_KEY` |
-| AWS Bedrock | `us.anthropic.claude-haiku-4-5-20251001-v1:0` | `AWS_ACCESS_KEY_ID` or `AWS_BEARER_TOKEN_BEDROCK` |
+| AWS Bedrock | `us.anthropic.claude-haiku-4-5-20251001-v1:0` | `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` + `AWS_REGION_NAME` |
 | Google Gemini | `gemini/gemini-2.0-flash` | `GEMINI_API_KEY` |
 | DeepSeek | `deepseek/deepseek-chat` | `DEEPSEEK_API_KEY` |
 | Groq | `groq/llama-3.1-70b` | `GROQ_API_KEY` |

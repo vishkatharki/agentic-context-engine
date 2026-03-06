@@ -32,10 +32,6 @@ def _litellm():
         return None
 
 
-def _litellm_available() -> bool:
-    return _litellm() is not None
-
-
 # Example model strings per provider (for user guidance in the CLI)
 PROVIDER_MODEL_EXAMPLES: dict[str, str] = {
     "openai": "gpt-4o-mini",
@@ -193,7 +189,7 @@ def validate_connection(model: str, api_key: str | None = None) -> ValidationRes
 # ---------------------------------------------------------------------------
 
 
-_PROVIDER_KEY_ENV: dict[str, str | list[str]] = {
+PROVIDER_KEY_ENV: dict[str, str | list[str]] = {
     "openai": "OPENAI_API_KEY",
     "anthropic": "ANTHROPIC_API_KEY",
     "azure": "AZURE_API_KEY",
@@ -215,14 +211,27 @@ _PROVIDER_KEY_ENV: dict[str, str | list[str]] = {
 }
 
 
+_PROVIDER_ALT_KEYS: dict[str, list[str]] = {
+    "bedrock_converse": ["AWS_BEARER_TOKEN_BEDROCK"],
+}
+
+
 def _quick_key_check(provider: str) -> bool:
     """Fast check: are the required env vars set for this provider?"""
-    env_var = _PROVIDER_KEY_ENV.get(provider)
-    if env_var is None:
-        return False
-    if isinstance(env_var, list):
-        return all(bool(os.environ.get(v)) for v in env_var)
-    return bool(os.environ.get(env_var))
+    env_var = PROVIDER_KEY_ENV.get(provider)
+    if env_var is not None:
+        if isinstance(env_var, list):
+            if all(bool(os.environ.get(v)) for v in env_var):
+                return True
+        elif bool(os.environ.get(env_var)):
+            return True
+
+    # Alternative auth (e.g. bearer token for Bedrock)
+    alt_vars = _PROVIDER_ALT_KEYS.get(provider)
+    if alt_vars:
+        return any(bool(os.environ.get(v)) for v in alt_vars)
+
+    return False
 
 
 def search_models(

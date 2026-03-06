@@ -24,10 +24,11 @@ from ..providers.config import (
     save_env_var,
 )
 from ..providers.registry import (
-    PROVIDER_MODEL_EXAMPLES,
-    _PROVIDER_KEY_ENV,
+    PROVIDER_KEY_ENV,
+    _PROVIDER_ALT_KEYS,
     get_missing_keys,
     get_provider,
+    search_models,
     suggest_models,
     validate_connection,
 )
@@ -49,7 +50,7 @@ RESET = "\033[0m" if _IS_TTY else ""
 
 
 def _ok(msg: str) -> None:
-    print(f"  {GREEN}v{RESET} {msg}")
+    print(f"  {GREEN}\u2713{RESET} {msg}")
 
 
 def _warn(msg: str) -> None:
@@ -57,7 +58,7 @@ def _warn(msg: str) -> None:
 
 
 def _fail(msg: str) -> None:
-    print(f"  {RED}x{RESET} {msg}")
+    print(f"  {RED}\u2717{RESET} {msg}")
 
 
 def _info(msg: str) -> None:
@@ -95,6 +96,23 @@ def _confirm(label: str, default: bool = True) -> bool:
     return value in ("y", "yes")
 
 
+def _load_project_dotenv() -> None:
+    """Load .env from the project root (where ace.toml lives), not just CWD."""
+    config_path = find_config()
+    if config_path is not None:
+        env_path = config_path.parent / ".env"
+        if env_path.exists():
+            try:
+                from dotenv import load_dotenv as _load
+
+                _load(env_path)
+                return
+            except ImportError:
+                pass
+    # Fallback: try CWD
+    load_dotenv()
+
+
 # ---------------------------------------------------------------------------
 # Model + key flow
 # ---------------------------------------------------------------------------
@@ -102,12 +120,20 @@ def _confirm(label: str, default: bool = True) -> bool:
 
 def _detect_credential_source(provider: str) -> str | None:
     """Return which credential env var is set for *provider*."""
-    env_vars = _PROVIDER_KEY_ENV.get(provider)
+    env_vars = PROVIDER_KEY_ENV.get(provider)
     if env_vars is None:
-        return None
-    if isinstance(env_vars, str):
-        env_vars = [env_vars]
-    found = [v for v in env_vars if os.environ.get(v)]
+        candidates: list[str] = []
+    elif isinstance(env_vars, str):
+        candidates = [env_vars]
+    else:
+        candidates = list(env_vars)
+
+    # Include alternative auth (e.g. AWS_BEARER_TOKEN_BEDROCK)
+    alt = _PROVIDER_ALT_KEYS.get(provider)
+    if alt:
+        candidates.extend(alt)
+
+    found = [v for v in candidates if os.environ.get(v)]
     if not found:
         return None
     return ", ".join(found)
@@ -129,7 +155,7 @@ def _validate_and_prompt_keys(
 
     if result.success:
         print(
-            f"\r  {GREEN}v{RESET} Connected! "
+            f"\r  {GREEN}\u2713{RESET} Connected! "
             f"({model} via {result.provider}, {result.latency_ms}ms)"
         )
         # Show which credential was used
@@ -138,24 +164,25 @@ def _validate_and_prompt_keys(
             _info(f"Using {cred_source}")
         return True
 
-    # Not an auth problem — show error and return
-    if "Invalid API key" not in result.error and "connect" not in result.error.lower():
-        print(f"\r  {RED}x{RESET} {result.error}                    ")
-        if "not found" in result.error.lower():
-            suggestions = suggest_models(model)
-            if suggestions:
-                _info("Did you mean one of these?")
-                for s in suggestions:
-                    _info(f"  - {s}")
+    # Model not found — not recoverable by adding keys
+    if "not found" in result.error.lower():
+        print(f"\r  {RED}\u2717{RESET} {result.error}                    ")
+        suggestions = suggest_models(model)
+        if suggestions:
+            _info("Did you mean one of these?")
+            for s in suggestions:
+                _info(f"  - {s}")
         return False
 
-    # Auth/connection failure — prompt for missing keys
-    print(f"\r  {YELLOW}!{RESET} No credentials found for {provider}                    ")
+    # Everything else (auth, connection, bad request, etc.) — offer to
+    # prompt for credentials since missing/wrong keys are the most common cause.
+    print(f"\r  {YELLOW}!{RESET} {result.error}                    ")
+    _info(f"This may be a credentials issue for {provider}.")
 
     # Prefer our own mapping over LiteLLM's generic response, since
     # LiteLLM often returns wrong keys (e.g. bedrock_converse gets
     # generic bedrock keys instead of the bearer token alternative).
-    our_keys = _PROVIDER_KEY_ENV.get(provider)
+    our_keys = PROVIDER_KEY_ENV.get(provider)
     if our_keys is not None:
         missing = [our_keys] if isinstance(our_keys, str) else list(our_keys)
     else:
@@ -163,9 +190,15 @@ def _validate_and_prompt_keys(
         if not missing:
             missing = [f"{provider.upper()}_API_KEY"]
 
+    # Env vars that are not secrets — prompt with visible input
+    _NON_SECRET_VARS = {"AWS_REGION_NAME", "GOOGLE_APPLICATION_CREDENTIALS"}
+
     provided_keys: dict[str, str] = {}
     for env_var in missing:
-        value = _prompt_secret(f"{env_var}")
+        if env_var in _NON_SECRET_VARS:
+            value = _prompt(env_var)
+        else:
+            value = _prompt_secret(f"{env_var}")
         if value:
             provided_keys[env_var] = value
             os.environ[env_var] = value
@@ -180,7 +213,7 @@ def _validate_and_prompt_keys(
 
     if result.success:
         print(
-            f"\r  {GREEN}v{RESET} Connected! "
+            f"\r  {GREEN}\u2713{RESET} Connected! "
             f"({model} via {result.provider}, {result.latency_ms}ms)"
         )
         # Persist keys to .env
@@ -189,7 +222,7 @@ def _validate_and_prompt_keys(
         _ok(f"Saved credentials to .env")
         return True
     else:
-        print(f"\r  {RED}x{RESET} {result.error}                    ")
+        print(f"\r  {RED}\u2717{RESET} {result.error}                    ")
         # Roll back
         for env_var in provided_keys:
             os.environ.pop(env_var, None)
@@ -332,8 +365,8 @@ def run_setup(directory: str | Path = ".") -> ACEModelConfig:
     print()
     print(f"  {BOLD}Ready!{RESET} Use in code:")
     print()
-    print(f"    {CYAN}from ace_next import ACELiteLLM{RESET}")
-    print(f"    {CYAN}ace = ACELiteLLM.from_setup(){RESET}")
+    print(f"  {CYAN}from ace_next import ACELiteLLM{RESET}")
+    print(f"  {CYAN}ace = ACELiteLLM.from_setup(){RESET}")
     print()
 
     return config
@@ -378,6 +411,9 @@ def main() -> None:
     )
     validate_parser.add_argument("model", help="Model name to validate")
 
+    # ace config
+    subparsers.add_parser("config", help="Show current configuration")
+
     args = parser.parse_args()
 
     if args.command == "setup":
@@ -386,6 +422,8 @@ def main() -> None:
         _cmd_models(" ".join(args.query), args.provider, args.limit)
     elif args.command == "validate":
         _cmd_validate(args.model)
+    elif args.command == "config":
+        _cmd_config()
     else:
         parser.print_help()
 
@@ -397,16 +435,21 @@ def main() -> None:
 
 def _cmd_models(query: str, provider: str | None, limit: int) -> None:
     """``ace models [query]`` — search available models."""
-    from ..providers.registry import search_models
+    if not query and not provider:
+        print(f"Usage: {CYAN}ace models <query>{RESET}")
+        print()
+        print("Examples:")
+        print(f"  {CYAN}ace models claude{RESET}          All Claude models")
+        print(f"  {CYAN}ace models gpt 4o{RESET}          GPT-4o variants")
+        print(f"  {CYAN}ace models haiku us{RESET}        US-region Haiku models")
+        print(f"  {CYAN}ace models --provider openai{RESET}  All OpenAI models")
+        return
 
-    load_dotenv()
+    _load_project_dotenv()
     results, total = search_models(query=query, provider=provider, limit=limit)
 
     if not results:
-        if query:
-            print(f"No models matching '{query}'.")
-        else:
-            print("No models found.")
+        print(f"No models matching '{query}'.")
         print(f"Try: {CYAN}ace models gpt-4o{RESET} or {CYAN}ace models claude{RESET}")
         return
 
@@ -418,7 +461,7 @@ def _cmd_models(query: str, provider: str | None, limit: int) -> None:
     for m in results:
         in_cost = f"${m.input_cost_per_m:.2f}" if m.input_cost_per_m else "-"
         out_cost = f"${m.output_cost_per_m:.2f}" if m.output_cost_per_m else "-"
-        key_status = f"{GREEN}v{RESET}" if m.key_found else f"{RED}x{RESET}"
+        key_status = f"{GREEN}\u2713{RESET}" if m.key_found else f"{RED}\u2717{RESET}"
         print(f"{m.model:<45} {m.provider:<15} {in_cost:<10} {out_cost:<11} {key_status}")
 
     if total > limit:
@@ -432,21 +475,47 @@ def _cmd_models(query: str, provider: str | None, limit: int) -> None:
 
 def _cmd_validate(model: str) -> None:
     """``ace validate <model>`` — test a model connection."""
-    load_dotenv()
+    _load_project_dotenv()
 
     print(f"Validating {model}...", end="", flush=True)
     result = validate_connection(model)
 
     if result.success:
         print(
-            f"\r{GREEN}v{RESET} Connected! "
+            f"\r{GREEN}\u2713{RESET} Connected! "
             f"({model} via {result.provider}, {result.latency_ms}ms)"
         )
     else:
-        print(f"\r{RED}x{RESET} {result.error}")
+        print(f"\r{RED}\u2717{RESET} {result.error}")
         suggestions = suggest_models(model)
         if suggestions:
             print("Did you mean:")
             for s in suggestions:
                 print(f"  - {s}")
         sys.exit(1)
+
+
+def _cmd_config() -> None:
+    """``ace config`` — show current configuration."""
+    _load_project_dotenv()
+
+    config_path = find_config()
+    if config_path is None:
+        print(f"No ace.toml found. Run {CYAN}ace setup{RESET} to create one.")
+        sys.exit(1)
+
+    try:
+        config = load_config(config_path.parent)
+    except Exception as e:
+        _fail(f"Error reading {config_path}: {e}")
+        sys.exit(1)
+
+    print(f"{BOLD}Configuration{RESET} ({config_path})")
+    print()
+    print(f"  {'Role':<16} {'Model':<45}")
+    print(f"  {'-' * 16} {'-' * 45}")
+    print(f"  {'default':<16} {config.default.model}")
+    for role in ("agent", "reflector", "skill_manager"):
+        cfg = getattr(config, role)
+        model = cfg.model if cfg else f"{DIM}(default){RESET}"
+        print(f"  {role:<16} {model}")
