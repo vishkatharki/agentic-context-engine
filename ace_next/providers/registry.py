@@ -15,12 +15,25 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-try:
-    import litellm
+def _litellm():
+    """Return the litellm module, importing it on first call."""
+    global _litellm_mod
+    try:
+        return _litellm_mod  # type: ignore[name-defined]
+    except NameError:
+        pass
+    try:
+        import litellm as _mod
 
-    LITELLM_AVAILABLE = True
-except ImportError:
-    LITELLM_AVAILABLE = False
+        _litellm_mod = _mod
+        return _mod
+    except ImportError:
+        _litellm_mod = None
+        return None
+
+
+def _litellm_available() -> bool:
+    return _litellm() is not None
 
 
 # Example model strings per provider (for user guidance in the CLI)
@@ -73,11 +86,12 @@ class ModelInfo:
 
 def get_provider(model: str) -> str:
     """Return the provider name for a model string, or 'unknown'."""
-    if not LITELLM_AVAILABLE:
+    ll = _litellm()
+    if ll is None:
         raise ImportError("LiteLLM is required for model validation.")
 
     try:
-        _, provider, _, _ = litellm.get_llm_provider(model)
+        _, provider, _, _ = ll.get_llm_provider(model)
     except Exception:
         provider = "unknown"
 
@@ -86,11 +100,12 @@ def get_provider(model: str) -> str:
 
 def get_missing_keys(model: str) -> list[str]:
     """Return env var names that LiteLLM says are missing for *model*."""
-    if not LITELLM_AVAILABLE:
+    ll = _litellm()
+    if ll is None:
         return []
 
     try:
-        result = litellm.validate_environment(model=model)
+        result = ll.validate_environment(model=model)
         return result.get("missing_keys", [])
     except Exception:
         return []
@@ -116,7 +131,8 @@ def validate_connection(model: str, api_key: str | None = None) -> ValidationRes
         model: LiteLLM model string.
         api_key: Explicit key, or None to use environment.
     """
-    if not LITELLM_AVAILABLE:
+    ll = _litellm()
+    if ll is None:
         return ValidationResult(
             success=False, model=model, error="LiteLLM is not installed."
         )
@@ -132,12 +148,12 @@ def validate_connection(model: str, api_key: str | None = None) -> ValidationRes
         call_params["api_key"] = api_key
 
     # Suppress LiteLLM's noisy debug output during validation
-    prev_verbose = getattr(litellm, "suppress_debug_info", False)
-    litellm.suppress_debug_info = True
+    prev_verbose = getattr(ll, "suppress_debug_info", False)
+    ll.suppress_debug_info = True
 
     start = time.monotonic()
     try:
-        response = litellm.completion(**call_params)
+        response = ll.completion(**call_params)
         elapsed_ms = int((time.monotonic() - start) * 1000)
 
         provider = "unknown"
@@ -150,17 +166,17 @@ def validate_connection(model: str, api_key: str | None = None) -> ValidationRes
             provider=provider,
             latency_ms=elapsed_ms,
         )
-    except litellm.AuthenticationError:
+    except ll.AuthenticationError:
         return ValidationResult(
             success=False, model=model, error="Invalid API key."
         )
-    except litellm.NotFoundError:
+    except ll.NotFoundError:
         return ValidationResult(
             success=False,
             model=model,
             error=f"Model '{model}' not found at the provider.",
         )
-    except litellm.APIConnectionError:
+    except ll.APIConnectionError:
         return ValidationResult(
             success=False,
             model=model,
@@ -169,7 +185,7 @@ def validate_connection(model: str, api_key: str | None = None) -> ValidationRes
     except Exception as e:
         return ValidationResult(success=False, model=model, error=str(e))
     finally:
-        litellm.suppress_debug_info = prev_verbose
+        ll.suppress_debug_info = prev_verbose
 
 
 # ---------------------------------------------------------------------------
@@ -184,8 +200,8 @@ _PROVIDER_KEY_ENV: dict[str, str | list[str]] = {
     "gemini": "GEMINI_API_KEY",
     "deepseek": "DEEPSEEK_API_KEY",
     "groq": "GROQ_API_KEY",
-    "bedrock": ["AWS_ACCESS_KEY_ID", "AWS_BEARER_TOKEN_BEDROCK"],
-    "bedrock_converse": ["AWS_ACCESS_KEY_ID", "AWS_BEARER_TOKEN_BEDROCK"],
+    "bedrock": ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION_NAME"],
+    "bedrock_converse": ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION_NAME"],
     "vertex_ai": "GOOGLE_APPLICATION_CREDENTIALS",
     "cohere": "COHERE_API_KEY",
     "mistral": "MISTRAL_API_KEY",
@@ -200,12 +216,12 @@ _PROVIDER_KEY_ENV: dict[str, str | list[str]] = {
 
 
 def _quick_key_check(provider: str) -> bool:
-    """Fast check: is the standard env var set for this provider?"""
+    """Fast check: are the required env vars set for this provider?"""
     env_var = _PROVIDER_KEY_ENV.get(provider)
     if env_var is None:
         return False
     if isinstance(env_var, list):
-        return any(bool(os.environ.get(v)) for v in env_var)
+        return all(bool(os.environ.get(v)) for v in env_var)
     return bool(os.environ.get(env_var))
 
 
@@ -227,13 +243,14 @@ def search_models(
         (results, total_matches) — results capped at *limit*,
         total_matches is the full count of matching models.
     """
-    if not LITELLM_AVAILABLE:
+    ll = _litellm()
+    if ll is None:
         return [], 0
 
     results: list[ModelInfo] = []
     total = 0
     terms = query.lower().split() if query else []
-    for model_id, info in litellm.model_cost.items():
+    for model_id, info in ll.model_cost.items():
         if chat_only and info.get("mode") != "chat":
             continue
         if provider and info.get("litellm_provider") != provider:
@@ -273,13 +290,14 @@ def search_models(
 
 def suggest_models(typo: str, limit: int = 5) -> list[str]:
     """Return model names similar to *typo* (simple substring matching)."""
-    if not LITELLM_AVAILABLE:
+    ll = _litellm()
+    if ll is None:
         return []
 
     candidates: list[str] = []
     typo_lower = typo.lower()
 
-    for model_id, info in litellm.model_cost.items():
+    for model_id, info in ll.model_cost.items():
         if info.get("mode") != "chat":
             continue
         if model_id.lower().startswith(typo_lower):

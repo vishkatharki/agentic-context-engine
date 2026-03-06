@@ -151,10 +151,17 @@ def _validate_and_prompt_keys(
 
     # Auth/connection failure — prompt for missing keys
     print(f"\r  {YELLOW}!{RESET} No credentials found for {provider}                    ")
-    missing = get_missing_keys(model)
-    if not missing:
-        # LiteLLM doesn't know what's missing — generic prompt
-        missing = [f"{provider.upper()}_API_KEY"]
+
+    # Prefer our own mapping over LiteLLM's generic response, since
+    # LiteLLM often returns wrong keys (e.g. bedrock_converse gets
+    # generic bedrock keys instead of the bearer token alternative).
+    our_keys = _PROVIDER_KEY_ENV.get(provider)
+    if our_keys is not None:
+        missing = [our_keys] if isinstance(our_keys, str) else list(our_keys)
+    else:
+        missing = get_missing_keys(model)
+        if not missing:
+            missing = [f"{provider.upper()}_API_KEY"]
 
     provided_keys: dict[str, str] = {}
     for env_var in missing:
