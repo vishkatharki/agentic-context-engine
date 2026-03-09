@@ -22,7 +22,7 @@ A `Step` is the smallest unit of work. It receives a `StepContext`, does one foc
 ```python
 class MyStep:
     requires = {"agent_output"}   # fields it reads
-    provides = {"reflection"}     # fields it writes
+    provides = {"reflections"}    # fields it writes
 
     def __call__(self, ctx: StepContext) -> StepContext:
         ...
@@ -94,7 +94,7 @@ class ACEContext(StepContext):
     # Produced by steps (None until the providing step runs)
     agent_output: AgentOutput | None = None
     environment_result: EnvironmentResult | None = None
-    reflection: ReflectorOutput | None = None
+    reflections: tuple[ReflectorOutput, ...] = ()
     skill_manager_output: UpdateBatch | None = None
 
     # Runner bookkeeping
