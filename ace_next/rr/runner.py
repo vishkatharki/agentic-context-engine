@@ -53,7 +53,7 @@ class RRStep(SubRunner[ACEStepContext]):
 
     # StepProtocol
     requires = frozenset({"trace", "skillbook"})
-    provides = frozenset({"reflection"})
+    provides = frozenset({"reflections"})
 
     def __init__(
         self,
@@ -192,7 +192,7 @@ class RRStep(SubRunner[ACEStepContext]):
                 skillbook=ctx.skillbook,
                 trace=trace,
             )
-        return ctx.replace(reflection=reflection)
+        return ctx.replace(reflections=(reflection,))
 
     # ------------------------------------------------------------------
     # ReflectorLike protocol

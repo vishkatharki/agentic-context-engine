@@ -73,7 +73,7 @@ Each iteration runs four steps sequentially:
 class RRStep(SubRunner):
     # StepProtocol — place in any Pipeline
     requires = frozenset({"trace", "skillbook"})
-    provides = frozenset({"reflection"})
+    provides = frozenset({"reflections"})
 
     def __call__(self, ctx: ACEStepContext) -> ACEStepContext: ...
 
@@ -628,13 +628,13 @@ steps = [..., rr_step, RROpikStep(project_name="my-project")]
 ### Step Contract
 
 ```python
-requires = frozenset({"reflection"})
+requires = frozenset({"reflections"})
 provides = frozenset()
 ```
 
 ### Behaviour
 
-- Reads `ctx.reflection.raw["rr_trace"]` — the dict populated by `RRStep`.
+- Iterates over `ctx.reflections` and reads `reflection.raw["rr_trace"]` from each — the dict populated by `RRStep`.
 - Creates one Opik trace per RR invocation with child spans per iteration.
 - Gracefully degrades to a no-op when Opik is not installed or `OPIK_DISABLED=true`.
 - **Explicit opt-in only** — Opik is never auto-enabled.

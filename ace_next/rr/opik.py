@@ -1,8 +1,8 @@
 """RROpikStep -- log Recursive Reflector traces to Opik.
 
-Pure side-effect step that reads ``ctx.reflection.raw["rr_trace"]``
-(populated by :class:`RRStep`) and creates a hierarchical Opik trace
-with child spans per REPL iteration.
+Pure side-effect step that iterates ``ctx.reflections`` and reads
+``reflection.raw["rr_trace"]`` from each (populated by :class:`RRStep`)
+to create a hierarchical Opik trace with child spans per REPL iteration.
 
 Place after ``RRStep`` in the pipeline.  Gracefully degrades to a
 no-op when Opik is not installed or is disabled.
@@ -55,16 +55,17 @@ def _opik_disabled() -> bool:
 class RROpikStep:
     """Log Recursive Reflector REPL traces to Opik.
 
-    Pure side-effect step -- reads ``ctx.reflection.raw["rr_trace"]``
-    and creates one Opik trace per RR invocation with child spans per
-    iteration.  Never mutates the context.
+    Pure side-effect step -- iterates ``ctx.reflections`` and reads
+    ``reflection.raw["rr_trace"]`` from each to create one Opik trace
+    per reflection with child spans per iteration.  Never mutates the
+    context.
 
     Args:
         project_name: Opik project name.
         tags: Tags applied to every trace.
     """
 
-    requires: frozenset[str] = frozenset({"reflection"})
+    requires: frozenset[str] = frozenset({"reflections"})
     provides: frozenset[str] = frozenset()
 
     def __init__(
@@ -96,17 +97,14 @@ class RROpikStep:
         if not self.enabled:
             return ctx
 
-        if not ctx.reflection:
-            return ctx
-
-        rr_trace = ctx.reflection.raw.get("rr_trace")
-        if not rr_trace:
-            return ctx
-
-        try:
-            self._log_trace(ctx, rr_trace)
-        except Exception as exc:
-            logger.debug("RROpikStep: failed to log trace (non-critical): %s", exc)
+        for reflection in ctx.reflections:
+            rr_trace = reflection.raw.get("rr_trace")
+            if not rr_trace:
+                continue
+            try:
+                self._log_trace(ctx, reflection, rr_trace)
+            except Exception as exc:
+                logger.debug("RROpikStep: failed to log trace (non-critical): %s", exc)
 
         return ctx
 
@@ -114,13 +112,18 @@ class RROpikStep:
     # Private helpers
     # ------------------------------------------------------------------
 
-    def _log_trace(self, ctx: ACEStepContext, rr_trace: dict[str, Any]) -> None:
+    def _log_trace(
+        self,
+        ctx: ACEStepContext,
+        reflection: Any,
+        rr_trace: dict[str, Any],
+    ) -> None:
         """Build and send an Opik trace with child spans from RR data."""
         iterations = rr_trace.get("iterations", [])
         subagent_calls = rr_trace.get("subagent_calls", [])
 
         trace_input = self._build_input(ctx)
-        trace_output = self._build_output(ctx, rr_trace)
+        trace_output = self._build_output(reflection, rr_trace)
         metadata = self._build_metadata(rr_trace, subagent_calls)
         tags = list(self.tags)
 
@@ -167,14 +170,14 @@ class RROpikStep:
         return result
 
     def _build_output(
-        self, ctx: ACEStepContext, rr_trace: dict[str, Any]
+        self, reflection: Any, rr_trace: dict[str, Any]
     ) -> dict[str, Any]:
         """Extract output data from the reflection."""
-        result: dict[str, Any] = {}
-        if ctx.reflection:
-            result["key_insight"] = ctx.reflection.key_insight
-            result["reasoning"] = ctx.reflection.reasoning[:500]
-            result["learnings_count"] = len(ctx.reflection.extracted_learnings)
+        result: dict[str, Any] = {
+            "key_insight": reflection.key_insight,
+            "reasoning": reflection.reasoning[:500],
+            "learnings_count": len(reflection.extracted_learnings),
+        }
         if rr_trace.get("timed_out"):
             result["timed_out"] = True
         return result
