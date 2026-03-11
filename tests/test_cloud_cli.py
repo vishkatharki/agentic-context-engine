@@ -668,5 +668,231 @@ class TestPromptCommands(unittest.TestCase):
         self.assertEqual(parsed["id"], "p1")
 
 
+# ---------------------------------------------------------------------------
+# Batch command
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestBatchCommand(unittest.TestCase):
+    """Test ace cloud batch command (prepare/apply modes) and helpers."""
+
+    def setUp(self):
+        self.runner = CliRunner()
+
+    # -- helper: _extract_trace_metadata --
+
+    def test_batch_metadata_extraction_json(self):
+        from ace.cli.cloud import _extract_trace_metadata
+
+        content = json.dumps(
+            {
+                "task_id": "t-1",
+                "user_request": "Do something important",
+                "tools": ["search", "write"],
+                "steps": [1, 2, 3],
+            }
+        )
+        meta = _extract_trace_metadata("trace.json", content, "json")
+        self.assertEqual(meta["filename"], "trace.json")
+        self.assertEqual(meta["type"], "json")
+        self.assertEqual(meta["task_id"], "t-1")
+        self.assertEqual(meta["user_request"], "Do something important")
+        self.assertEqual(meta["tools"], ["search", "write"])
+        self.assertEqual(meta["step_count"], 3)
+
+    def test_batch_metadata_extraction_markdown(self):
+        from ace.cli.cloud import _extract_trace_metadata
+
+        content = "# Title\n## Section 1\nSome text\n## Section 2\nMore text"
+        meta = _extract_trace_metadata("trace.md", content, "md")
+        self.assertIn("summary", meta)
+        self.assertIn("headings", meta)
+        self.assertIn("# Title", meta["headings"])
+        self.assertIn("## Section 1", meta["headings"])
+
+    # -- helper: _build_classification_prompt --
+
+    def test_batch_prompt_default(self):
+        from ace.cli.cloud import _build_classification_prompt
+
+        traces = [{"filename": "a.json", "type": "json", "size": 100}]
+        prompt = _build_classification_prompt(
+            traces, "min_batch_size=10, max_batch_size=30"
+        )
+        self.assertIn("min_batch_size=10", prompt)
+        self.assertIn("max_batch_size=30", prompt)
+        self.assertIn("a.json", prompt)
+        self.assertIn("trace classification system", prompt)
+
+    def test_batch_prompt_custom_file(self):
+        from ace.cli.cloud import _build_classification_prompt
+
+        custom = "Custom prompt: {constraints}\nTraces: {traces_json}"
+        traces = [{"filename": "b.md"}]
+        prompt = _build_classification_prompt(
+            traces, "min=5, max=20", custom_prompt=custom
+        )
+        self.assertIn("Custom prompt:", prompt)
+        self.assertIn("min=5, max=20", prompt)
+        self.assertIn("b.md", prompt)
+
+    # -- helper: _validate_batch_plan --
+
+    def test_batch_validation_all_assigned(self):
+        from ace.cli.cloud import _validate_batch_plan
+
+        plan = {
+            "batches": {
+                "group-a": {"description": "A", "trace_files": ["a.json"]},
+            }
+        }
+        errors = _validate_batch_plan(plan, ["a.json", "b.json"], 1, 30)
+        self.assertTrue(any("not assigned" in e.lower() for e in errors))
+
+    def test_batch_validation_size_constraints(self):
+        from ace.cli.cloud import _validate_batch_plan
+
+        plan = {
+            "batches": {
+                "big": {
+                    "description": "Big batch",
+                    "trace_files": ["a.json", "b.json", "c.json"],
+                },
+            }
+        }
+        errors = _validate_batch_plan(
+            plan, ["a.json", "b.json", "c.json"], min_size=1, max_size=2
+        )
+        self.assertTrue(any("max 2" in e for e in errors))
+
+    # -- CLI: no paths errors --
+
+    def test_batch_no_paths_errors(self):
+        result = self.runner.invoke(cli, ["cloud", "batch", "--api-key", "k"])
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn("Provide at least one path", result.output)
+
+    # -- CLI: prepare mode outputs prompt to stdout --
+
+    def test_batch_prepare_outputs_prompt(self):
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "a.md").write_text("# Trace A\nSome content")
+            out = os.path.join(d, "out.json")
+            result = self.runner.invoke(
+                cli,
+                ["cloud", "batch", d, "-o", out, "--min-batch-size", "1"],
+            )
+            self.assertEqual(result.exit_code, 0, result.output)
+            # Prompt printed to stdout
+            self.assertIn("trace classification system", result.output)
+            self.assertIn("a.md", result.output)
+            # Starter file written
+            written = json.loads(Path(out).read_text())
+            self.assertIn("batches", written)
+            self.assertEqual(written["summary"]["total_traces"], 1)
+
+    # -- CLI: prepare mode with custom prompt file --
+
+    def test_batch_prepare_custom_prompt(self):
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "a.md").write_text("trace data")
+            prompt_path = os.path.join(d, "prompt.txt")
+            Path(prompt_path).write_text("Custom: {constraints}\nData: {traces_json}")
+            out = os.path.join(d, "out.json")
+            result = self.runner.invoke(
+                cli,
+                [
+                    "cloud",
+                    "batch",
+                    d,
+                    "--prompt",
+                    prompt_path,
+                    "-o",
+                    out,
+                    "--min-batch-size",
+                    "1",
+                ],
+            )
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertIn("Custom:", result.output)
+
+    # -- CLI: apply mode validates --
+
+    def test_batch_apply_validates(self):
+        with (
+            tempfile.TemporaryDirectory() as traces_dir,
+            tempfile.TemporaryDirectory() as plan_dir,
+        ):
+            (Path(traces_dir) / "a.md").write_text("data")
+            plan_path = os.path.join(plan_dir, "plan.json")
+            # Plan references b.md which doesn't exist → validation error
+            plan = {
+                "batches": {
+                    "group": {"description": "g", "trace_files": ["a.md", "b.md"]}
+                }
+            }
+            Path(plan_path).write_text(json.dumps(plan))
+            result = self.runner.invoke(
+                cli,
+                [
+                    "cloud",
+                    "batch",
+                    traces_dir,
+                    "--apply",
+                    plan_path,
+                    "--min-batch-size",
+                    "1",
+                ],
+            )
+            self.assertNotEqual(result.exit_code, 0)
+            self.assertIn("validation failed", result.output.lower())
+
+    # -- CLI: apply + upload --
+
+    @patch("ace.cli.cloud._upload_batches")
+    @patch("ace.cli.cloud.KaybaClient")
+    def test_batch_apply_upload(self, MockKayba, mock_upload):
+        """--apply + --upload triggers per-batch uploads."""
+        with (
+            tempfile.TemporaryDirectory() as traces_dir,
+            tempfile.TemporaryDirectory() as plan_dir,
+        ):
+            (Path(traces_dir) / "a.md").write_text("data")
+            plan_path = os.path.join(plan_dir, "plan.json")
+            plan = {"batches": {"group": {"description": "g", "trace_files": ["a.md"]}}}
+            Path(plan_path).write_text(json.dumps(plan))
+            result = self.runner.invoke(
+                cli,
+                [
+                    "cloud",
+                    "batch",
+                    traces_dir,
+                    "--apply",
+                    plan_path,
+                    "--upload",
+                    "--min-batch-size",
+                    "1",
+                    "--api-key",
+                    "k",
+                ],
+            )
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertIn("Upload complete", result.output)
+            mock_upload.assert_called_once()
+
+    # -- CLI: --upload without --apply errors --
+
+    def test_batch_upload_without_apply_errors(self):
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "a.md").write_text("data")
+            result = self.runner.invoke(
+                cli,
+                ["cloud", "batch", d, "--upload", "--min-batch-size", "1"],
+            )
+            self.assertNotEqual(result.exit_code, 0)
+            self.assertIn("--upload requires --apply", result.output)
+
+
 if __name__ == "__main__":
     unittest.main()

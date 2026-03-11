@@ -414,6 +414,274 @@ def materialize(job_id, api_key, base_url):
 
 
 # ---------------------------------------------------------------------------
+# batch
+# ---------------------------------------------------------------------------
+
+DEFAULT_BATCH_PROMPT = """\
+You are a trace classification system. Analyze the trace metadata below and group
+them into coherent batches for analysis by a Recursive Reflector.
+
+Constraints:
+{constraints}
+
+Instructions:
+1. Group traces by semantic similarity (similar tasks, tools, domains).
+2. Respect min/max batch size constraints.
+3. Every trace must be assigned to exactly one batch.
+4. Use descriptive batch names (lowercase-with-hyphens).
+
+Output only valid JSON matching this schema:
+{{"batches": {{"name": {{"description": "...", "trace_files": [...]}}}}, "summary": {{"total_traces": N, "num_batches": N, "batch_sizes": {{"name": N}}}}}}
+
+Trace metadata:
+{traces_json}
+"""
+
+
+def _extract_trace_metadata(filename: str, content: str, file_type: str) -> dict:
+    """Extract compact metadata from a trace for prompt context."""
+    meta: dict = {
+        "filename": filename,
+        "type": file_type,
+        "size": len(content),
+    }
+
+    if file_type == "json":
+        try:
+            data = json.loads(content)
+            if isinstance(data, dict):
+                if "task_id" in data:
+                    meta["task_id"] = data["task_id"]
+                if "user_request" in data:
+                    meta["user_request"] = str(data["user_request"])[:200]
+                if "tools" in data:
+                    meta["tools"] = data["tools"]
+                steps = data.get("steps") or data.get("events") or []
+                if isinstance(steps, list):
+                    meta["step_count"] = len(steps)
+        except (json.JSONDecodeError, TypeError):
+            pass
+    elif file_type == "md":
+        lines = content.split("\n")
+        meta["summary"] = "\n".join(lines[:10])
+        headings = [ln for ln in lines if ln.startswith("#")]
+        if headings:
+            meta["headings"] = headings[:20]
+    else:
+        lines = content.split("\n")
+        meta["summary"] = "\n".join(lines[:5])
+
+    return meta
+
+
+def _build_classification_prompt(
+    traces_metadata: list[dict],
+    constraints: str,
+    custom_prompt: Optional[str] = None,
+) -> str:
+    """Build the classification prompt with metadata and constraints."""
+    traces_json = json.dumps(traces_metadata, indent=2)
+    template = custom_prompt if custom_prompt else DEFAULT_BATCH_PROMPT
+    return template.format(traces_json=traces_json, constraints=constraints)
+
+
+def _validate_batch_plan(
+    plan: dict,
+    all_filenames: list[str],
+    min_size: int,
+    max_size: int,
+) -> list[str]:
+    """Validate a batch plan. Returns list of error strings (empty = valid)."""
+    errors: list[str] = []
+
+    batches = plan.get("batches")
+    if not isinstance(batches, dict):
+        errors.append("Missing or invalid 'batches' key (expected dict).")
+        return errors
+
+    assigned: set[str] = set()
+    for name, batch in batches.items():
+        files = batch.get("trace_files", [])
+        if not isinstance(files, list):
+            errors.append(f"Batch '{name}': trace_files must be a list.")
+            continue
+
+        if len(files) < min_size:
+            errors.append(f"Batch '{name}' has {len(files)} traces (min {min_size}).")
+        if len(files) > max_size:
+            errors.append(f"Batch '{name}' has {len(files)} traces (max {max_size}).")
+        for f in files:
+            if f in assigned:
+                errors.append(f"Trace '{f}' assigned to multiple batches.")
+            assigned.add(f)
+
+    missing = set(all_filenames) - assigned
+    if missing:
+        errors.append(f"Traces not assigned: {sorted(missing)}")
+
+    extra = assigned - set(all_filenames)
+    if extra:
+        errors.append(f"Unknown traces in plan: {sorted(extra)}")
+
+    return errors
+
+
+def _upload_batches(
+    plan: dict,
+    traces_by_name: dict[str, dict[str, str]],
+    client: KaybaClient,
+) -> None:
+    """Upload each batch to the Kayba API."""
+    batches = plan.get("batches", {})
+    for name, batch in batches.items():
+        files = batch.get("trace_files", [])
+        batch_traces = [traces_by_name[f] for f in files if f in traces_by_name]
+        if not batch_traces:
+            click.echo(f"  Skipping empty batch '{name}'.", err=True)
+            continue
+        try:
+            result = client.upload_traces(batch_traces)
+            count = result.get("count", len(batch_traces))
+            click.echo(f"  Uploaded batch '{name}': {count} trace(s).")
+        except KaybaAPIError as exc:
+            click.echo(f"  Error uploading batch '{name}': {exc}", err=True)
+
+
+@cloud.command()
+@click.argument("paths", nargs=-1)
+@click.option(
+    "--prompt",
+    "prompt_file",
+    type=click.Path(exists=True),
+    default=None,
+    help="Custom classification prompt file (should contain {traces_json} and {constraints}).",
+)
+@click.option(
+    "-o",
+    "--output",
+    "output_file",
+    default="batches.json",
+    show_default=True,
+    help="Output batch plan file.",
+)
+@click.option(
+    "--apply",
+    "apply_file",
+    type=click.Path(exists=True),
+    default=None,
+    help="Apply an existing batch plan (skip prompt generation).",
+)
+@click.option(
+    "--upload",
+    "do_upload",
+    is_flag=True,
+    help="Upload each batch to the API (requires --apply).",
+)
+@click.option("--max-batch-size", type=int, default=30, show_default=True)
+@click.option("--min-batch-size", type=int, default=10, show_default=True)
+@_api_key_option
+@_base_url_option
+def batch(
+    paths,
+    prompt_file,
+    output_file,
+    apply_file,
+    do_upload,
+    max_batch_size,
+    min_batch_size,
+    api_key,
+    base_url,
+):
+    """Pre-batch traces for the Recursive Reflector.
+
+    Two modes:
+
+      Prepare (default): collect traces, extract metadata, print a classification
+      prompt to stdout for Claude Code to process.
+
+      Apply (--apply FILE): validate a batch plan JSON and optionally upload.
+
+    PATHS can be files or directories (walked recursively).
+    """
+    if not paths:
+        raise click.ClickException("Provide at least one path.")
+
+    # ---- Collect traces ----
+    traces: list[dict[str, str]] = []
+    for item in paths:
+        p = Path(item)
+        if p.is_dir():
+            for child in sorted(p.rglob("*")):
+                if child.is_file():
+                    _add_file(traces, child, None)
+        elif p.is_file():
+            _add_file(traces, p, None)
+        else:
+            click.echo(f"Warning: skipping {item} (not found)", err=True)
+
+    if not traces:
+        raise click.ClickException("No trace files found.")
+
+    all_filenames = [t["filename"] for t in traces]
+
+    # ---- Mode 2: Apply ----
+    if apply_file:
+        plan_text = Path(apply_file).read_text(encoding="utf-8")
+        try:
+            plan = json.loads(plan_text)
+        except json.JSONDecodeError as exc:
+            raise click.ClickException(f"Invalid JSON in {apply_file}: {exc}")
+
+        errors = _validate_batch_plan(
+            plan, all_filenames, min_batch_size, max_batch_size
+        )
+        if errors:
+            for err in errors:
+                click.echo(f"  Error: {err}", err=True)
+            raise click.ClickException("Batch plan validation failed.")
+
+        num_batches = len(plan.get("batches", {}))
+        click.echo(
+            f"Batch plan valid: {num_batches} batch(es), {len(traces)} trace(s)."
+        )
+
+        if do_upload:
+            client = _client(api_key, base_url)
+            traces_by_name = {t["filename"]: t for t in traces}
+            _upload_batches(plan, traces_by_name, client)
+            click.echo("Upload complete.")
+        return
+
+    # ---- Mode 1: Prepare ----
+    if do_upload:
+        raise click.ClickException("--upload requires --apply.")
+
+    metadata = [
+        _extract_trace_metadata(t["filename"], t["content"], t["fileType"])
+        for t in traces
+    ]
+
+    constraints = f"min_batch_size={min_batch_size}, max_batch_size={max_batch_size}"
+    custom_prompt = None
+    if prompt_file:
+        custom_prompt = Path(prompt_file).read_text(encoding="utf-8")
+    prompt_text = _build_classification_prompt(metadata, constraints, custom_prompt)
+
+    # Write metadata to output file as starting point
+    starter = {
+        "batches": {},
+        "summary": {"total_traces": len(traces), "num_batches": 0, "batch_sizes": {}},
+    }
+    out_path = Path(output_file)
+    out_path.write_text(json.dumps(starter, indent=2), encoding="utf-8")
+    click.echo(f"Wrote metadata to {out_path}", err=True)
+    click.echo(f"Found {len(traces)} trace(s).", err=True)
+
+    # Print prompt to stdout for Claude Code
+    click.echo(prompt_text)
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
