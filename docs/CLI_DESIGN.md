@@ -353,6 +353,84 @@ Examples:
 
 ---
 
+## Cloud CLI (`ace-cloud`)
+
+A separate entry point (`ace-cloud`) provides commands for the Kayba hosted API. It is implemented with Click in `ace/cli/`.
+
+### Entry point
+
+```toml
+[project.scripts]
+ace-cloud = "ace.cli:main"
+```
+
+`ace.cli:main` creates a Click group with the `cloud` subcommand.
+
+### Architecture
+
+```
+ace/cli/
+  __init__.py       # Click group, registers cloud command
+  client.py         # KaybaClient — HTTP client for the hosted API
+  cloud.py          # Click commands: upload, insights, prompts, status, materialize, batch
+```
+
+### Commands
+
+```
+ace-cloud cloud upload PATHS...            Upload trace files (files, dirs, or stdin)
+ace-cloud cloud insights generate          Trigger insight generation
+ace-cloud cloud insights list              List insights (--status, --section, --json)
+ace-cloud cloud insights triage            Accept/reject insights (--accept, --reject, --accept-all)
+ace-cloud cloud prompts generate           Generate prompt from accepted insights
+ace-cloud cloud prompts list               List prompt versions
+ace-cloud cloud prompts pull               Download a prompt (--id, --pretty, -o)
+ace-cloud cloud status JOB_ID              Check job status (--wait, --interval)
+ace-cloud cloud materialize JOB_ID         Materialise job results into skillbook
+ace-cloud cloud batch PATHS...             Pre-batch traces for Recursive Reflector
+```
+
+### Authentication
+
+All commands accept `--api-key` and `--base-url`. Defaults:
+- API key: `KAYBA_API_KEY` env var
+- Base URL: `KAYBA_API_URL` env var, then `https://use.kayba.ai/api`
+
+### KaybaClient
+
+`ace.cli.client.KaybaClient` wraps the hosted API with a `requests.Session`:
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `upload_traces(traces)` | `POST /traces` | Upload trace files |
+| `generate_insights(...)` | `POST /insights/generate` | Start async insight generation |
+| `list_insights(...)` | `GET /insights` | List insights with filters |
+| `triage_insight(id, status)` | `PATCH /insights/:id` | Accept or reject an insight |
+| `get_job(job_id)` | `GET /jobs/:id` | Get job status |
+| `materialize_job(job_id)` | `POST /jobs/:id` | Materialise completed job |
+| `generate_prompt(...)` | `POST /prompts/generate` | Generate prompt from insights |
+| `list_prompts()` | `GET /prompts` | List all prompt versions |
+| `get_prompt(prompt_id)` | `GET /prompts/:id` | Get prompt by ID |
+
+Errors are raised as `KaybaAPIError(code, message, status_code)`.
+
+### Batch command
+
+The `batch` command operates in two modes:
+
+1. **Prepare** (default): collect traces, extract metadata, generate a classification prompt for an LLM to fill in batch assignments. Writes a skeleton `batches.json`.
+2. **Apply** (`--apply FILE`): validate a batch plan JSON against the trace set, optionally upload each batch (`--upload`).
+
+Validation checks: min/max batch size, all traces assigned, no duplicates, no unknown files.
+
+### Relationship to `ace setup`
+
+The `ace` entry point (`ace_next.cli.setup:main`) handles local model configuration.
+The `ace-cloud` entry point (`ace.cli:main`) handles hosted API operations.
+They are independent — `ace-cloud` does not require `ace.toml` or any local LLM setup.
+
+---
+
 ## Lazy Import Strategy
 
 ### Problem
@@ -399,6 +477,11 @@ def __getattr__(name: str) -> object:
 ## File Map
 
 ```
+ace/cli/
+  __init__.py                   # Click group, registers cloud subcommand
+  client.py                     # KaybaClient HTTP client
+  cloud.py                      # upload, insights, prompts, status, materialize, batch
+
 ace_next/
   __init__.py                     # lazy re-exports for all ace_next symbols
   cli/
